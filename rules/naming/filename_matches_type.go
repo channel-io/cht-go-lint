@@ -1,0 +1,82 @@
+package naming
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	lint "github.com/channel-io/cht-go-lint"
+)
+
+func init() {
+	lint.Register(&FilenameMatchesType{})
+}
+
+// FilenameMatchesType checks that the primary type in a file matches the filename.
+type FilenameMatchesType struct{}
+
+func (r *FilenameMatchesType) Meta() lint.Meta {
+	return lint.Meta{
+		Name:        "naming/filename-matches-type",
+		Description: "The primary type in a file should match the filename",
+		Category:    "naming",
+		Tier:        lint.TierUniversal,
+	}
+}
+
+func (r *FilenameMatchesType) Check(ctx *lint.Context) error {
+	strict := ctx.Options.Bool("strict", false)
+
+	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		// Find the first exported type (prefer interfaces, then structs, then any).
+		var primaryType string
+		for _, td := range file.Types {
+			if td.Exported {
+				primaryType = td.Name
+				break
+			}
+		}
+		if primaryType == "" {
+			return nil
+		}
+
+		base := filepath.Base(file.RelPath)
+		name := strings.TrimSuffix(base, ".go")
+		expected := snakeToPascal(name)
+
+		if expected != primaryType {
+			severity := ctx.Severity
+			msg := fmt.Sprintf("file %q primary type %q does not match filename (expected %q)", base, primaryType, expected)
+			if !strict {
+				msg = fmt.Sprintf("file %q primary type %q does not match filename (expected %q)", base, primaryType, expected)
+			}
+			ctx.Report.Add(lint.Violation{
+				Rule:     "naming/filename-matches-type",
+				Severity: severity,
+				File:     file.RelPath,
+				Line:     1,
+				Message:  msg,
+				Found:    primaryType,
+				Expected: expected,
+			})
+		}
+
+		return nil
+	})
+}
+
+// snakeToPascal converts a snake_case string to PascalCase.
+func snakeToPascal(s string) string {
+	parts := strings.Split(s, "_")
+	var b strings.Builder
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		b.WriteString(strings.ToUpper(p[:1]))
+		if len(p) > 1 {
+			b.WriteString(p[1:])
+		}
+	}
+	return b.String()
+}
