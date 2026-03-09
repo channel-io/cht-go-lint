@@ -4,10 +4,12 @@ import "sync"
 
 // Preset represents a named collection of rule configurations.
 type Preset struct {
-	Name   string
-	Layers []LayerConfig
-	Rules  map[string]RuleConfig
-	Location *LocationConfig
+	Name         string
+	Layers       []LayerConfig
+	Rules        map[string]RuleConfig
+	Location     *LocationConfig
+	ExcludePaths []string
+	GoLint       *GoLintConfig
 }
 
 var (
@@ -50,6 +52,16 @@ func resolvePresets(cfg *Config) {
 		// Merge location (preset provides default, user overrides)
 		if cfg.Location == nil && p.Location != nil {
 			cfg.Location = p.Location
+		}
+
+		// Merge exclude paths (preset provides defaults, user overrides)
+		if len(cfg.ExcludePaths) == 0 && len(p.ExcludePaths) > 0 {
+			cfg.ExcludePaths = p.ExcludePaths
+		}
+
+		// Merge go lint config (preset provides default, user overrides)
+		if cfg.GoLint == nil && p.GoLint != nil {
+			cfg.GoLint = p.GoLint
 		}
 
 		// Merge rules (preset provides defaults, user overrides)

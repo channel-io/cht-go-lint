@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `exclude_paths` config: exclude directories from architecture rule scanning (e.g., `lib`, `cmd`, `test`)
+- `go_lint` config: golangci-lint integration — run both architecture and golangci-lint checks with a single `cht-go-lint check` command
+- `--skip-go-lint` CLI flag: skip golangci-lint integration for a single run
+- `--go-lint-args` CLI flag: pass extra arguments to golangci-lint (e.g., `--new-from-merge-base`)
 - `dependency/subdomain-isolation` rule: sub-components within a component must not import each other, with `allow_model_import` option to downgrade model imports to warnings
 - `dependency/handler-infra-isolation` rule: handler layer must not import infrastructure layers (client, infra, event) directly
 - `naming/no-domain-prefix` rule: exported types should not be prefixed with the component name

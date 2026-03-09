@@ -41,7 +41,7 @@ func RunRule(t *testing.T, rule lint.Rule, cfg *lint.Config) *lint.Report {
 	t.Helper()
 
 	strategy := resolveTestStrategy(cfg)
-	a := lint.NewAnalyzer(cfg.Root, cfg.ModulePath, strategy)
+	a := lint.NewAnalyzer(cfg.Root, cfg.ModulePath, strategy, cfg.ExcludePaths)
 	rpt := lint.NewReport()
 
 	sev := lint.Error

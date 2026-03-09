@@ -215,6 +215,118 @@ rules:
 	}
 }
 
+func TestExcludePaths(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// Create files in multiple directories
+	writeGoFile(t, dir, "internal/service.go", "package internal\n\ntype UserService struct{}\n")
+	writeGoFile(t, dir, "lib/helper.go", "package lib\n\ntype LibHelper struct{}\n")
+	writeGoFile(t, dir, "cmd/main.go", "package main\n")
+
+	// Without exclude_paths, all files are scanned — expect violations from lib and cmd
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Rules: map[string]lint.RuleConfig{
+			"naming/file-naming": {Severity: lint.Error},
+		},
+	}
+	report := lint.Check(cfg)
+	totalWithout := report.Total()
+
+	// Now create a file with bad naming in lib only
+	writeGoFile(t, dir, "lib/badName.go", "package lib\n")
+
+	cfg2 := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Rules: map[string]lint.RuleConfig{
+			"naming/file-naming": {Severity: lint.Error},
+		},
+	}
+	reportNoExclude := lint.Check(cfg2)
+	errorsNoExclude := reportNoExclude.ErrorCount()
+
+	// With exclude_paths, lib is excluded
+	cfg3 := &lint.Config{
+		Root:         dir,
+		ModulePath:   "example.com/test",
+		ExcludePaths: []string{"lib"},
+		Rules: map[string]lint.RuleConfig{
+			"naming/file-naming": {Severity: lint.Error},
+		},
+	}
+	reportExclude := lint.Check(cfg3)
+	errorsExclude := reportExclude.ErrorCount()
+
+	// The excluded version should have fewer errors since lib/badName.go is skipped
+	if errorsExclude >= errorsNoExclude {
+		t.Errorf("exclude_paths should reduce violations: without=%d, with=%d",
+			errorsNoExclude, errorsExclude)
+	}
+
+	_ = totalWithout
+}
+
+func TestExcludePathsYAML(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `
+module: example.com/test
+exclude_paths:
+  - lib
+  - cmd
+  - test
+`
+	os.WriteFile(filepath.Join(dir, ".cht-go-lint.yaml"), []byte(yamlContent), 0644)
+
+	cfg, err := lint.LoadConfig(dir)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if len(cfg.ExcludePaths) != 3 {
+		t.Errorf("exclude_paths: got %d, want 3", len(cfg.ExcludePaths))
+	}
+	expected := []string{"lib", "cmd", "test"}
+	for i, want := range expected {
+		if i < len(cfg.ExcludePaths) && cfg.ExcludePaths[i] != want {
+			t.Errorf("exclude_paths[%d]: got %q, want %q", i, cfg.ExcludePaths[i], want)
+		}
+	}
+}
+
+func TestGoLintConfigYAML(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `
+module: example.com/test
+go_lint:
+  enabled: true
+  config: .golangci.yaml
+  args:
+    - --new-from-merge-base=origin/main
+`
+	os.WriteFile(filepath.Join(dir, ".cht-go-lint.yaml"), []byte(yamlContent), 0644)
+
+	cfg, err := lint.LoadConfig(dir)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if cfg.GoLint == nil {
+		t.Fatal("go_lint should not be nil")
+	}
+	if !cfg.GoLint.Enabled {
+		t.Error("go_lint.enabled should be true")
+	}
+	if cfg.GoLint.Config != ".golangci.yaml" {
+		t.Errorf("go_lint.config: got %q, want %q", cfg.GoLint.Config, ".golangci.yaml")
+	}
+	if len(cfg.GoLint.Args) != 1 || cfg.GoLint.Args[0] != "--new-from-merge-base=origin/main" {
+		t.Errorf("go_lint.args: got %v, want [--new-from-merge-base=origin/main]", cfg.GoLint.Args)
+	}
+}
+
 func TestPresetMerge(t *testing.T) {
 	// Register a test preset
 	lint.RegisterPreset(&lint.Preset{

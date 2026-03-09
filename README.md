@@ -144,6 +144,19 @@ module: github.com/your-org/your-project
 extends:
   - clean-arch
 
+# Exclude paths from architecture rule scanning
+# (golangci-lint uses its own config for scope)
+exclude_paths:
+  - lib
+  - cmd
+  - test
+
+# golangci-lint integration (requires golangci-lint in PATH)
+go_lint:
+  enabled: true
+  config: .golangci.yaml             # optional: path to config file
+  args: []                           # optional: extra arguments
+
 # Location strategy maps file paths to architectural layers
 location:
   strategy: flat-pkg  # or "nested-domain"
@@ -183,6 +196,37 @@ rules:
     options:
       root_marker: "Aggregate"
 ```
+
+### `exclude_paths`
+
+Excludes directories from architecture rule scanning. This does **not** affect golangci-lint — use its own config for scope.
+
+Paths are relative to the project root and matched as prefixes:
+
+```yaml
+exclude_paths:
+  - lib       # skips lib/ and all subdirectories
+  - cmd
+  - test
+```
+
+### `go_lint` (golangci-lint integration)
+
+Run golangci-lint as part of `cht-go-lint check` for a single-command lint experience:
+
+```yaml
+go_lint:
+  enabled: true
+  config: .golangci.yaml   # optional
+  args:                     # optional extra args
+    - --new-from-merge-base=origin/main
+```
+
+Violations from golangci-lint use `go/<linter>` rule names (e.g., `go/errcheck`, `go/staticcheck`).
+
+CLI flags for dynamic control:
+- `--skip-go-lint` — disable golangci-lint for this run
+- `--go-lint-args "<args>"` — pass extra arguments to golangci-lint
 
 ## Presets
 
@@ -273,9 +317,11 @@ Commands:
   init        Create a default configuration file
 
 Options for 'check':
-  --config <path>    Config file path (default: auto-detect .cht-go-lint.yaml)
-  --format <fmt>     Output format: text, json, github (default: text)
-  --rule <names>     Run specific rules (comma-separated)
+  --config <path>        Config file path (default: auto-detect .cht-go-lint.yaml)
+  --format <fmt>         Output format: text, json, github (default: text)
+  --rule <names>         Run specific rules (comma-separated)
+  --skip-go-lint         Skip golangci-lint integration
+  --go-lint-args <args>  Extra args to pass to golangci-lint (space-separated)
 ```
 
 ### GitHub Actions
@@ -284,11 +330,16 @@ Options for 'check':
 - uses: actions/setup-go@v5
   with:
     go-version: '1.22'
-- run: go install github.com/channel-io/cht-go-lint/cmd/cht-go-lint@v0.1.0
+- name: Install lint tools
+  run: |
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.5.0
+    go install github.com/channel-io/cht-go-lint/cmd/cht-go-lint@v0.3.0
 - run: cht-go-lint check --format github
 ```
 
 The `github` format emits `::error` / `::warning` annotations that show inline on PRs.
+
+With `go_lint.enabled: true` in config, this single command runs both architecture and golangci-lint checks.
 
 ## Writing Custom Rules
 

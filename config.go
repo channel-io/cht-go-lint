@@ -7,15 +7,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// GoLintConfig configures golangci-lint integration.
+type GoLintConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Config  string   `yaml:"config,omitempty"`
+	Args    []string `yaml:"args,omitempty"`
+}
+
 // Config holds the complete linter configuration.
 type Config struct {
-	Root       string                `yaml:"-"`
-	ModulePath string                `yaml:"module"`
-	Extends    []string              `yaml:"extends,omitempty"`
-	Layers     []LayerConfig         `yaml:"layers,omitempty"`
-	Components []ComponentConfig     `yaml:"components,omitempty"`
-	Rules      map[string]RuleConfig `yaml:"rules,omitempty"`
-	Location   *LocationConfig       `yaml:"location,omitempty"`
+	Root         string                `yaml:"-"`
+	ModulePath   string                `yaml:"module"`
+	Extends      []string              `yaml:"extends,omitempty"`
+	Layers       []LayerConfig         `yaml:"layers,omitempty"`
+	Components   []ComponentConfig     `yaml:"components,omitempty"`
+	Rules        map[string]RuleConfig `yaml:"rules,omitempty"`
+	Location     *LocationConfig       `yaml:"location,omitempty"`
+	ExcludePaths []string              `yaml:"exclude_paths,omitempty"`
+	GoLint       *GoLintConfig         `yaml:"go_lint,omitempty"`
 }
 
 // LayerConfig defines a layer and its allowed imports.

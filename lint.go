@@ -36,7 +36,7 @@ func Check(cfg *Config) *Report {
 	strategy := resolveStrategy(cfg)
 
 	// Create analyzer
-	a := NewAnalyzer(cfg.Root, cfg.ModulePath, strategy)
+	a := NewAnalyzer(cfg.Root, cfg.ModulePath, strategy, cfg.ExcludePaths)
 
 	// Create report
 	rpt := NewReport()
@@ -70,6 +70,11 @@ func Check(cfg *Config) *Report {
 				Message:  "rule execution failed: " + err.Error(),
 			})
 		}
+	}
+
+	// Run golangci-lint integration
+	if err := RunGoLint(cfg, rpt); err != nil {
+		rpt.Add(Violation{Rule: "go/golangci-lint", Severity: Error, Message: err.Error()})
 	}
 
 	return rpt

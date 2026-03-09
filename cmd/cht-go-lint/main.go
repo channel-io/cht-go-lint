@@ -41,6 +41,8 @@ func cmdCheck(args []string) {
 	configPath := fs.String("config", "", "config file path (default: auto-detect)")
 	formatFlag := fs.String("format", "text", "output format: text, json, github")
 	ruleFilter := fs.String("rule", "", "run specific rule(s) (comma-separated)")
+	skipGoLint := fs.Bool("skip-go-lint", false, "skip golangci-lint integration")
+	goLintArgs := fs.String("go-lint-args", "", "extra args to pass to golangci-lint (space-separated)")
 	_ = fs.Parse(args)
 
 	root := "."
@@ -64,6 +66,17 @@ func cmdCheck(args []string) {
 			fmt.Fprintf(os.Stderr, "error loading config: %v\n", err)
 			os.Exit(1)
 		}
+	}
+
+	// Apply go-lint flags
+	if *skipGoLint && cfg.GoLint != nil {
+		cfg.GoLint.Enabled = false
+	}
+	if *goLintArgs != "" {
+		if cfg.GoLint == nil {
+			cfg.GoLint = &lint.GoLintConfig{Enabled: true}
+		}
+		cfg.GoLint.Args = append(cfg.GoLint.Args, strings.Fields(*goLintArgs)...)
 	}
 
 	// Filter rules if specified
@@ -134,6 +147,18 @@ func cmdInit() {
 
 module: github.com/your-org/your-project
 
+# Exclude paths from architecture rule scanning
+# exclude_paths:
+#   - lib
+#   - cmd
+#   - test
+
+# golangci-lint integration (requires golangci-lint in PATH)
+# go_lint:
+#   enabled: true
+#   config: .golangci.yaml     # optional: path to golangci-lint config
+#   args: []                   # optional: extra arguments
+
 # Location strategy: "nested-domain" or "flat-pkg"
 # location:
 #   strategy: flat-pkg
@@ -194,7 +219,9 @@ Commands:
   init        Create a default configuration file
 
 Options for 'check':
-  --config <path>    Config file path (default: auto-detect .cht-go-lint.yaml)
-  --format <fmt>     Output format: text, json, github (default: text)
-  --rule <names>     Run specific rules (comma-separated)`)
+  --config <path>        Config file path (default: auto-detect .cht-go-lint.yaml)
+  --format <fmt>         Output format: text, json, github (default: text)
+  --rule <names>         Run specific rules (comma-separated)
+  --skip-go-lint         Skip golangci-lint integration
+  --go-lint-args <args>  Extra args to pass to golangci-lint (space-separated)`)
 }

@@ -12,24 +12,37 @@ import (
 
 // CodebaseAnalyzer walks and parses Go source files, caching results.
 type CodebaseAnalyzer struct {
-	root       string
-	modulePath string
-	strategy   LocationStrategy
-	fset       *token.FileSet
+	root         string
+	modulePath   string
+	strategy     LocationStrategy
+	excludePaths []string
+	fset         *token.FileSet
 
 	mu    sync.RWMutex
 	cache map[string]*ParsedFile
 }
 
 // NewAnalyzer creates a new codebase analyzer.
-func NewAnalyzer(root, modulePath string, strategy LocationStrategy) *CodebaseAnalyzer {
+func NewAnalyzer(root, modulePath string, strategy LocationStrategy, excludePaths []string) *CodebaseAnalyzer {
 	return &CodebaseAnalyzer{
-		root:       root,
-		modulePath: modulePath,
-		strategy:   strategy,
-		fset:       token.NewFileSet(),
-		cache:      make(map[string]*ParsedFile),
+		root:         root,
+		modulePath:   modulePath,
+		strategy:     strategy,
+		excludePaths: excludePaths,
+		fset:         token.NewFileSet(),
+		cache:        make(map[string]*ParsedFile),
 	}
+}
+
+// isExcluded checks whether a relative path should be excluded from analysis.
+func (a *CodebaseAnalyzer) isExcluded(relPath string) bool {
+	for _, prefix := range a.excludePaths {
+		p := filepath.ToSlash(strings.TrimSuffix(prefix, "/"))
+		if relPath == p || strings.HasPrefix(relPath, p+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // Root returns the project root directory.
@@ -108,6 +121,12 @@ func (a *CodebaseAnalyzer) WalkGoFiles(fn func(path string, file *ParsedFile) er
 			if skipDirs[d.Name()] {
 				return filepath.SkipDir
 			}
+			if len(a.excludePaths) > 0 {
+				rel, _ := filepath.Rel(a.root, path)
+				if rel != "." && a.isExcluded(filepath.ToSlash(rel)) {
+					return filepath.SkipDir
+				}
+			}
 			return nil
 		}
 		if !isGoSourceFile(d.Name()) {
@@ -134,6 +153,12 @@ func (a *CodebaseAnalyzer) WalkDir(dir string, fn func(path string, file *Parsed
 		if d.IsDir() {
 			if skipDirs[d.Name()] {
 				return filepath.SkipDir
+			}
+			if len(a.excludePaths) > 0 {
+				rel, _ := filepath.Rel(a.root, path)
+				if rel != "." && a.isExcluded(filepath.ToSlash(rel)) {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}
