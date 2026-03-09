@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 )
@@ -14,9 +15,9 @@ type golangciLintOutput struct {
 }
 
 type golangciLintIssue struct {
-	FromLinter string             `json:"FromLinter"`
-	Text       string             `json:"Text"`
-	Pos        golangciLintPos    `json:"Pos"`
+	FromLinter string          `json:"FromLinter"`
+	Text       string          `json:"Text"`
+	Pos        golangciLintPos `json:"Pos"`
 }
 
 type golangciLintPos struct {
@@ -35,9 +36,18 @@ func RunGoLint(cfg *Config, rpt *Report) error {
 		return fmt.Errorf("golangci-lint not found in PATH: %w", err)
 	}
 
+	// Write JSON to a temp file to avoid mixing with text output on stdout
+	tmpFile, err := os.CreateTemp("", "cht-go-lint-*.json")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
 	args := []string{
 		"run",
-		"--output.json.path", "stdout",
+		"--output.json.path", tmpPath,
 		"--issues-exit-code", "0",
 		"--max-issues-per-linter", "0",
 		"--max-same-issues", "0",
@@ -53,27 +63,26 @@ func RunGoLint(cfg *Config, rpt *Report) error {
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = cfg.Root
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
 		if _, ok := err.(*exec.ExitError); !ok {
 			return fmt.Errorf("golangci-lint execution failed: %w\n%s", err, stderr.String())
 		}
-		// Exit code != 0 but not a crash — might be config issue
-		// If stdout is empty, treat as error
-		if stdout.Len() == 0 {
+		// ExitError with non-zero exit — check if JSON was written
+		if info, statErr := os.Stat(tmpPath); statErr != nil || info.Size() == 0 {
 			return fmt.Errorf("golangci-lint failed: %s", stderr.String())
 		}
 	}
 
-	if stdout.Len() == 0 {
+	data, err := os.ReadFile(tmpPath)
+	if err != nil || len(data) == 0 {
 		return nil
 	}
 
 	var output golangciLintOutput
-	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+	if err := json.Unmarshal(data, &output); err != nil {
 		return fmt.Errorf("failed to parse golangci-lint JSON output: %w", err)
 	}
 
