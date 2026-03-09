@@ -22,10 +22,10 @@ func TestRuleRegistration(t *testing.T) {
 	}
 
 	expected := map[string]int{
-		"dependency": 7,
-		"naming":     6,
+		"dependency": 9,
+		"naming":     10,
 		"interface":  5,
-		"structure":  6,
+		"structure":  9,
 		"ddd":        8,
 	}
 	for cat, want := range expected {

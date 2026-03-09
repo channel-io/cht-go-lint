@@ -25,6 +25,7 @@ func (r *NoStutter) Meta() lint.Meta {
 
 func (r *NoStutter) Check(ctx *lint.Context) error {
 	excludeConstructors := ctx.Options.Bool("exclude_constructors", true)
+	checkComponentName := ctx.Options.Bool("check_component_name", false)
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
 		pkgLower := strings.ToLower(file.Package)
@@ -38,6 +39,19 @@ func (r *NoStutter) Check(ctx *lint.Context) error {
 					Line:     td.Pos.Line,
 					Message:  fmt.Sprintf("type %q stutters with package name %q", td.Name, file.Package),
 				})
+			}
+			// Also check against component name from LocationStrategy
+			if checkComponentName && td.Exported && file.Location.Component != "" {
+				compLower := strings.ToLower(file.Location.Component)
+				if compLower != pkgLower && strings.HasPrefix(strings.ToLower(td.Name), compLower) {
+					ctx.Report.Add(lint.Violation{
+						Rule:     "naming/no-stutter",
+						Severity: ctx.Severity,
+						File:     file.RelPath,
+						Line:     td.Pos.Line,
+						Message:  fmt.Sprintf("type %q stutters with component name %q", td.Name, file.Location.Component),
+					})
+				}
 			}
 		}
 

@@ -29,6 +29,7 @@ var snakeCaseRe = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
 
 func (r *FileNaming) Check(ctx *lint.Context) error {
 	convention := ctx.Options.String("convention", "snake_case")
+	noPackageStutter := ctx.Options.Bool("no_package_stutter", false)
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
 		base := filepath.Base(file.RelPath)
@@ -43,6 +44,18 @@ func (r *FileNaming) Check(ctx *lint.Context) error {
 				Message:  fmt.Sprintf("file name %q does not follow %s convention", base, convention),
 				Found:    base,
 				Expected: convention,
+			})
+		}
+
+		// Check if filename repeats the package name (e.g., install/install.go)
+		if noPackageStutter && name == file.Package {
+			ctx.Report.Add(lint.Violation{
+				Rule:     "naming/file-naming",
+				Severity: ctx.Severity,
+				File:     file.RelPath,
+				Line:     1,
+				Message:  fmt.Sprintf("file name %q repeats package name %q", base, file.Package),
+				Found:    base,
 			})
 		}
 

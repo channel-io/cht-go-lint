@@ -27,18 +27,45 @@ func (r *DeclarationOrder) Meta() lint.Meta {
 var defaultDeclOrder = []string{"const", "var", "interface", "struct", "func"}
 
 func (r *DeclarationOrder) Check(ctx *lint.Context) error {
-	order := ctx.Options.StringSlice("order")
-	if len(order) == 0 {
-		order = defaultDeclOrder
+	defaultOrder := ctx.Options.StringSlice("order")
+	if len(defaultOrder) == 0 {
+		defaultOrder = defaultDeclOrder
 	}
 
-	// Build priority map: category -> index
-	priority := make(map[string]int, len(order))
-	for i, cat := range order {
-		priority[cat] = i
+	// Build per-layer overrides
+	layerOverrides := make(map[string][]string)
+	if overridesRaw := ctx.Options.Map("layer_overrides"); overridesRaw != nil {
+		for layer, orderRaw := range overridesRaw {
+			switch v := orderRaw.(type) {
+			case []any:
+				var o []string
+				for _, item := range v {
+					if s, ok := item.(string); ok {
+						o = append(o, s)
+					}
+				}
+				layerOverrides[layer] = o
+			case []string:
+				layerOverrides[layer] = v
+			}
+		}
 	}
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		// Determine which order to use based on file's layer
+		order := defaultOrder
+		if file.Location.Layer != "" {
+			if override, ok := layerOverrides[file.Location.Layer]; ok {
+				order = override
+			}
+		}
+
+		// Build priority map: category -> index
+		priority := make(map[string]int, len(order))
+		for i, cat := range order {
+			priority[cat] = i
+		}
+
 		lastPriority := -1
 		lastCategory := ""
 

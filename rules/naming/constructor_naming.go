@@ -25,6 +25,7 @@ func (r *ConstructorNaming) Meta() lint.Meta {
 
 func (r *ConstructorNaming) Check(ctx *lint.Context) error {
 	requireIfaceReturn := ctx.Options.Bool("require_interface_return", false)
+	forbiddenReturnNames := ctx.Options.StringSlice("forbidden_return_names")
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
 		// Build a set of interface names in this file for require_interface_return check.
@@ -58,6 +59,25 @@ func (r *ConstructorNaming) Check(ctx *lint.Context) error {
 					Expected: typeName,
 				})
 				continue
+			}
+
+			// Check for forbidden generic return type names (e.g., Handler, Svc, Repo)
+			if len(forbiddenReturnNames) > 0 {
+				for _, rt := range fd.ReturnTypes {
+					clean := strings.TrimPrefix(rt, "*")
+					for _, forbidden := range forbiddenReturnNames {
+						if clean == forbidden {
+							ctx.Report.Add(lint.Violation{
+								Rule:     "naming/constructor-naming",
+								Severity: ctx.Severity,
+								File:     file.RelPath,
+								Line:     fd.Pos.Line,
+								Message:  fmt.Sprintf("constructor %q returns generic type name %q; use a more specific name", fd.Name, clean),
+								Found:    clean,
+							})
+						}
+					}
+				}
 			}
 
 			if requireIfaceReturn && !returnsInterface(fd.ReturnTypes, ifaceNames) {

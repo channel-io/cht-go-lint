@@ -61,6 +61,59 @@ func (l Location) SameSubComponent(other Location) bool {
 	return l.SameComponent(other) && l.SubComponent != "" && l.SubComponent == other.SubComponent
 }
 
+// IsDomainLevel returns true if this location is at component level without a sub-component.
+func (l Location) IsDomainLevel() bool {
+	return l.HasComponent() && !l.HasSubComponent()
+}
+
+// IsPublicSvc returns true if this location is a Public Service file.
+func (l Location) IsPublicSvc() bool {
+	return l.Tag("isPublicSvc") == "true"
+}
+
+// IsAlias returns true if this location is an alias file (alias.go).
+func (l Location) IsAlias() bool {
+	return l.Tag("isAlias") == "true"
+}
+
+// IsFxCompanion returns true if this component is an FX companion directory.
+func (l Location) IsFxCompanion() bool {
+	return l.Tag("isFxCompanion") == "true"
+}
+
+// IsSaga returns true if this location is in a saga directory.
+func (l Location) IsSaga() bool {
+	return l.Tag("isSaga") == "true"
+}
+
+// --- ImportLocation helper methods ---
+
+// IsDomainLevel returns true if the import targets a domain root (no layer, no sub-component).
+func (il ImportLocation) IsDomainLevel() bool {
+	return il.IsSameModule && il.Component != "" && il.SubComponent == "" && il.Layer == ""
+}
+
+// IsSubdomainLevel returns true if the import targets within a sub-component.
+func (il ImportLocation) IsSubdomainLevel() bool {
+	return il.IsSameModule && il.SubComponent != ""
+}
+
+// IsAppServiceImport returns true if the import targets a domain-level service (app service).
+func (il ImportLocation) IsAppServiceImport() bool {
+	return il.IsSameModule && il.Component != "" && il.SubComponent == "" &&
+		(il.Layer == "service" || il.Layer == "svc" || il.Layer == "appsvc")
+}
+
+// IsSagaImport returns true if the import targets a saga package.
+func (il ImportLocation) IsSagaImport() bool {
+	return il.IsSameModule && il.Layer == "saga"
+}
+
+// IsFxCompanion returns true if the import targets an FX companion component.
+func (il ImportLocation) IsFxCompanion() bool {
+	return il.IsSameModule && strings.HasSuffix(il.Component, "fx")
+}
+
 // --- Built-in: Nested Domain Strategy ---
 // Pattern: internal/domain/{component}/subdomain/{subcomponent}/{layer}/
 // Also handles: internal/saga/{name}/, api/{handler_type}/
@@ -108,11 +161,19 @@ func (s *NestedDomainStrategy) Identify(relPath string) Location {
 	loc := Location{Tags: make(map[string]string)}
 	normalized := strings.ReplaceAll(relPath, "\\", "/")
 
-	// Check handler roots
+	filename := normalized[strings.LastIndex(normalized, "/")+1:]
+
+	// Check handler roots (api/http, api/jsonrpc)
 	for _, hr := range s.HandlerRoots {
 		if strings.HasPrefix(normalized, hr+"/") || strings.HasPrefix(normalized, hr+"\\") {
+			rest := strings.TrimPrefix(normalized, hr+"/")
+			parts := strings.SplitN(rest, "/", 2)
 			loc.Layer = "handler"
 			loc.Tags["handler_type"] = hr
+			loc.Tags["handler_source"] = "api"
+			if len(parts) > 0 && !strings.Contains(parts[0], ".") {
+				loc.Component = parts[0]
+			}
 			return loc
 		}
 	}
@@ -125,6 +186,10 @@ func (s *NestedDomainStrategy) Identify(relPath string) Location {
 			loc.Component = parts[0]
 		}
 		loc.Layer = "saga"
+		loc.Tags["isSaga"] = "true"
+		if strings.HasSuffix(loc.Component, "fx") {
+			loc.Tags["isFxCompanion"] = "true"
+		}
 		return loc
 	}
 
@@ -164,8 +229,23 @@ func (s *NestedDomainStrategy) Identify(relPath string) Location {
 		}
 
 		// Check for alias file
-		if strings.HasSuffix(normalized, "/alias.go") {
+		if filename == "alias.go" {
 			loc.Tags["isAlias"] = "true"
+		}
+
+		// Check for Public Service file (public.go in svc/service layer)
+		if filename == "public.go" && (loc.Layer == "service" || loc.Layer == "svc") {
+			loc.Tags["isPublicSvc"] = "true"
+		}
+
+		// Check for FX companion directory
+		if strings.HasSuffix(loc.Component, "fx") {
+			loc.Tags["isFxCompanion"] = "true"
+		}
+
+		// Check for internal handler
+		if loc.Layer == "handler" {
+			loc.Tags["handler_source"] = "internal"
 		}
 
 		return loc

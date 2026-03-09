@@ -3,6 +3,7 @@ package structure
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	lint "github.com/channel-io/cht-go-lint"
 )
@@ -33,6 +34,7 @@ var conventionPatterns = map[string]*regexp.Regexp{
 func (r *ImportAlias) Check(ctx *lint.Context) error {
 	convention := ctx.Options.String("convention", "snake_case")
 	forbiddenAliases := ctx.Options.StringSlice("forbidden_aliases")
+	noSameComponentAlias := ctx.Options.Bool("no_same_component_alias", false)
 
 	forbiddenSet := make(map[string]bool, len(forbiddenAliases))
 	for _, a := range forbiddenAliases {
@@ -42,6 +44,18 @@ func (r *ImportAlias) Check(ctx *lint.Context) error {
 	pattern := conventionPatterns[convention]
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		// Collect base package names for disambiguation check
+		var basePkgNames map[string]int
+		if noSameComponentAlias {
+			basePkgNames = make(map[string]int)
+			for _, imp := range file.Imports {
+				parts := splitImportPath(imp.Path)
+				if len(parts) > 0 {
+					basePkgNames[parts[len(parts)-1]]++
+				}
+			}
+		}
+
 		for _, imp := range file.Imports {
 			if imp.Alias == "" {
 				continue
@@ -65,6 +79,30 @@ func (r *ImportAlias) Check(ctx *lint.Context) error {
 				continue
 			}
 
+			// Check for unnecessary alias on same-component imports
+			if noSameComponentAlias && ctx.Analyzer.IsInternalImport(imp.Path) {
+				iloc := ctx.Analyzer.ImportLocation(imp.Path)
+				if file.Location.Component != "" &&
+					iloc.Component == file.Location.Component &&
+					iloc.SubComponent == file.Location.SubComponent {
+					// Same component + subcomponent - alias is unnecessary
+					// unless there's a name conflict
+					parts := splitImportPath(imp.Path)
+					basePkg := parts[len(parts)-1]
+					if basePkgNames[basePkg] <= 1 {
+						ctx.Report.Add(lint.Violation{
+							Rule:     "structure/import-alias",
+							Severity: ctx.Severity,
+							File:     file.RelPath,
+							Line:     imp.Pos.Line,
+							Message:  fmt.Sprintf("unnecessary import alias %q for same-component import", imp.Alias),
+							Found:    imp.Alias,
+						})
+						continue
+					}
+				}
+			}
+
 			// Check convention
 			if pattern != nil && !pattern.MatchString(imp.Alias) {
 				ctx.Report.Add(lint.Violation{
@@ -80,4 +118,8 @@ func (r *ImportAlias) Check(ctx *lint.Context) error {
 		}
 		return nil
 	})
+}
+
+func splitImportPath(path string) []string {
+	return strings.Split(path, "/")
 }

@@ -42,13 +42,20 @@ func (r *FilenameMatchesType) Check(ctx *lint.Context) error {
 
 		base := filepath.Base(file.RelPath)
 		name := strings.TrimSuffix(base, ".go")
-		expected := snakeToPascal(name)
 
-		if expected != primaryType {
+		// Convert type name to snake_case, then normalize both
+		typeSnake := pascalToSnake(primaryType)
+		normFile := strings.ToLower(strings.ReplaceAll(name, "_", ""))
+		normType := strings.ToLower(strings.ReplaceAll(typeSnake, "_", ""))
+
+		// Bidirectional prefix check: either one must be a prefix of the other
+		isMatch := strings.HasPrefix(normFile, normType) || strings.HasPrefix(normType, normFile)
+
+		if !isMatch {
 			severity := ctx.Severity
-			msg := fmt.Sprintf("file %q primary type %q does not match filename (expected %q)", base, primaryType, expected)
-			if !strict {
-				msg = fmt.Sprintf("file %q primary type %q does not match filename (expected %q)", base, primaryType, expected)
+			msg := fmt.Sprintf("file %q primary type %q does not match filename (expected bidirectional prefix match)", base, primaryType)
+			if strict {
+				msg = fmt.Sprintf("file %q primary type %q does not match filename (strict: expected exact match %q)", base, primaryType, snakeToPascal(name))
 			}
 			ctx.Report.Add(lint.Violation{
 				Rule:     "naming/filename-matches-type",
@@ -57,7 +64,7 @@ func (r *FilenameMatchesType) Check(ctx *lint.Context) error {
 				Line:     1,
 				Message:  msg,
 				Found:    primaryType,
-				Expected: expected,
+				Expected: snakeToPascal(name),
 			})
 		}
 
@@ -79,4 +86,24 @@ func snakeToPascal(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// pascalToSnake converts a PascalCase string to snake_case.
+func pascalToSnake(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			prev := rune(s[i-1])
+			if prev >= 'a' && prev <= 'z' {
+				b.WriteRune('_')
+			} else if i+1 < len(s) {
+				next := rune(s[i+1])
+				if next >= 'a' && next <= 'z' {
+					b.WriteRune('_')
+				}
+			}
+		}
+		b.WriteRune(r)
+	}
+	return strings.ToLower(b.String())
 }

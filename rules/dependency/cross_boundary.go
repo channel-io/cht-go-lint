@@ -43,6 +43,11 @@ func (r *CrossBoundary) Check(ctx *lint.Context) error {
 				continue
 			}
 
+			// Allow FX companion imports: if one component is the other with "fx" appended
+			if iloc.Component == sourceComp+"fx" || sourceComp == iloc.Component+"fx" {
+				continue
+			}
+
 			// Allow the designated boundary layer
 			if iloc.Layer == boundaryLayer {
 				continue

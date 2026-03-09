@@ -28,38 +28,68 @@ func init() {
 		Rules: map[string]lint.RuleConfig{
 			// Dependency rules
 			"dependency/layer-direction":  {Severity: lint.Error},
-			"dependency/module-isolation":  {Severity: lint.Error},
-			"dependency/cross-boundary":    {Severity: lint.Error},
-			"dependency/forbidden-imports": {Severity: lint.Error},
+			"dependency/module-isolation": {Severity: lint.Error},
+			"dependency/cross-boundary":   {Severity: lint.Error},
+			"dependency/forbidden-imports": {
+				Severity: lint.Error,
+				Options:  map[string]any{"patterns": []any{"*/internal/shared/*"}},
+			},
 			"dependency/di-isolation": {
 				Severity: lint.Error,
 				Options:  map[string]any{"framework": "fx", "companion_suffix": "fx"},
 			},
-			"dependency/infra-in-core": {Severity: lint.Error},
-			"dependency/handler-placement": {Severity: lint.Error},
+			"dependency/infra-in-core":           {Severity: lint.Error},
+			"dependency/handler-placement":        {Severity: lint.Error},
+			"dependency/public-service-isolation": {Severity: lint.Error},
+			"dependency/app-service-mixing":       {Severity: lint.Error},
 
 			// Naming rules
-			"naming/no-stutter":            {Severity: lint.Error},
-			"naming/impl-naming":           {Severity: lint.Error},
-			"naming/constructor-naming":    {Severity: lint.Error},
-			"naming/file-naming":           {Severity: lint.Error},
-			"naming/forbidden-names":       {Severity: lint.Warn},
-			"naming/filename-matches-type": {Severity: lint.Warn},
+			"naming/no-stutter":               {Severity: lint.Error},
+			"naming/impl-naming":              {Severity: lint.Error},
+			"naming/constructor-naming":        {Severity: lint.Error},
+			"naming/file-naming":              {Severity: lint.Error},
+			"naming/forbidden-names": {
+				Severity: lint.Warn,
+				Options:  map[string]any{"forbidden_suffixes": []any{"Helper"}},
+			},
+			"naming/filename-matches-type":    {Severity: lint.Warn},
+			"naming/public-service-v2":        {Severity: lint.Error},
+			"naming/saga-naming":              {Severity: lint.Error},
+			"naming/saga-method-ordering":     {Severity: lint.Warn},
+			"naming/filename-package-stutter": {Severity: lint.Warn},
 
 			// Interface rules
-			"interface/impl-pattern":        {Severity: lint.Error},
-			"interface/constructor-return":   {Severity: lint.Error},
-			"interface/colocation":           {Severity: lint.Error},
-			"interface/one-per-file":         {Severity: lint.Warn},
-			"interface/required-embedding":   {Severity: lint.Off},
+			"interface/impl-pattern":      {Severity: lint.Error},
+			"interface/constructor-return": {Severity: lint.Error},
+			"interface/colocation":         {Severity: lint.Error},
+			"interface/one-per-file":       {Severity: lint.Warn},
+			"interface/required-embedding": {Severity: lint.Off},
 
 			// Structure rules
-			"structure/required-dirs":      {Severity: lint.Warn},
-			"structure/forbidden-dirs":     {Severity: lint.Error},
-			"structure/file-content":       {Severity: lint.Error},
-			"structure/declaration-order":  {Severity: lint.Warn},
-			"structure/import-alias":       {Severity: lint.Warn},
-			"structure/delegation-only":    {Severity: lint.Warn},
+			"structure/required-dirs": {
+				Severity: lint.Warn,
+				Options:  map[string]any{"dirs": []any{"model", "svc"}},
+			},
+			"structure/forbidden-dirs": {Severity: lint.Error},
+			"structure/file-content": {
+				Severity: lint.Error,
+				Options: map[string]any{
+					"files": map[string]any{
+						"alias.go": map[string]any{
+							"allow": []any{"type_alias", "const", "var"},
+						},
+					},
+				},
+			},
+			"structure/declaration-order":     {Severity: lint.Warn},
+			"structure/import-alias":          {Severity: lint.Warn},
+			"structure/delegation-only": {
+				Severity: lint.Warn,
+				Options:  map[string]any{"target_layers": []any{"publicsvc"}},
+			},
+			"structure/alias-exports":         {Severity: lint.Error},
+			"structure/domain-alias-required": {Severity: lint.Error},
+			"structure/fx-file-placement":     {Severity: lint.Error},
 		},
 	})
 }
