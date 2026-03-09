@@ -9,6 +9,8 @@ import (
 
 	lint "github.com/channel-io/cht-go-lint"
 	"github.com/channel-io/cht-go-lint/formatter"
+	_ "github.com/channel-io/cht-go-lint/preset"
+	_ "github.com/channel-io/cht-go-lint/preset/channeltalk"
 	_ "github.com/channel-io/cht-go-lint/rules"
 )
 
