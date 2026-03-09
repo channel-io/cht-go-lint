@@ -33,7 +33,7 @@ func (r *AggregateBoundary) Check(ctx *lint.Context) error {
 
 	// First pass: collect all aggregate root type names
 	aggregateRoots := make(map[string]bool)
-	ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+	_ = ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
 		for _, t := range file.Types {
 			if t.IsStruct && strings.HasSuffix(t.Name, rootMarker) {
 				aggregateRoots[t.Name] = true

@@ -35,7 +35,7 @@ func (r *ValueObjectImmutable) Check(ctx *lint.Context) error {
 
 	// Collect value object type names
 	voTypes := make(map[string]bool)
-	ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+	_ = ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
 		for _, t := range file.Types {
 			if t.IsStruct && isValueObject(t.Name, voMarkers) {
 				voTypes[t.Name] = true

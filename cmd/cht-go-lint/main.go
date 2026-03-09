@@ -41,7 +41,7 @@ func cmdCheck(args []string) {
 	configPath := fs.String("config", "", "config file path (default: auto-detect)")
 	formatFlag := fs.String("format", "text", "output format: text, json, github")
 	ruleFilter := fs.String("rule", "", "run specific rule(s) (comma-separated)")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	root := "."
 	if fs.NArg() > 0 {

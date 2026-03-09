@@ -31,7 +31,7 @@ func (r *RepositoryPerAggregate) Check(ctx *lint.Context) error {
 	var aggregateRoots []aggregateInfo
 	repos := make(map[string]bool)
 
-	ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+	_ = ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
 		for _, t := range file.Types {
 			if t.IsStruct && strings.HasSuffix(t.Name, rootMarker) {
 				aggregateRoots = append(aggregateRoots, aggregateInfo{
