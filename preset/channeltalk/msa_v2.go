@@ -42,6 +42,11 @@ func init() {
 			"dependency/handler-placement":        {Severity: lint.Error},
 			"dependency/public-service-isolation": {Severity: lint.Error},
 			"dependency/app-service-mixing":       {Severity: lint.Error},
+			"dependency/subdomain-isolation": {
+				Severity: lint.Error,
+				Options:  map[string]any{"allow_model_import": true},
+			},
+			"dependency/handler-infra-isolation": {Severity: lint.Error},
 
 			// Naming rules
 			"naming/no-stutter": {
@@ -59,6 +64,10 @@ func init() {
 				Options:  map[string]any{"forbidden_suffixes": []any{"Helper"}},
 			},
 			"naming/filename-matches-type": {Severity: lint.Warn},
+			"naming/no-domain-prefix": {
+				Severity: lint.Error,
+				Options:  map[string]any{"skip_layers": []any{"model", "repo"}},
+			},
 			"naming/layer-type-pattern": {
 				Severity: lint.Error,
 				Options: map[string]any{
@@ -87,7 +96,15 @@ func init() {
 			"interface/constructor-return": {Severity: lint.Error},
 			"interface/colocation":         {Severity: lint.Error},
 			"interface/one-per-file":       {Severity: lint.Warn},
-			"interface/required-embedding": {Severity: lint.Off},
+			"interface/required-embedding": {
+				Severity: lint.Error,
+				Options: map[string]any{
+					"patterns": []any{
+						map[string]any{"tag": "handler_type", "tag_value": "api/http", "layer": "handler", "base_interface": "RouteRegistrant"},
+						map[string]any{"tag": "handler_type", "tag_value": "api/jsonrpc", "layer": "handler", "base_interface": "Registrant"},
+					},
+				},
+			},
 
 			// Structure rules
 			"structure/required-dirs": {

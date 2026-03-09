@@ -22,8 +22,8 @@ func TestRuleRegistration(t *testing.T) {
 	}
 
 	expected := map[string]int{
-		"dependency": 9,
-		"naming":     7,
+		"dependency": 11,
+		"naming":     8,
 		"interface":  5,
 		"structure":  9,
 		"ddd":        8,

@@ -9,7 +9,7 @@ Architecture linter for Go projects. Enforce layer dependencies, naming conventi
 
 ## Features
 
-- **38 built-in rules** across 5 categories (dependency, naming, interface, structure, DDD)
+- **41 built-in rules** across 5 categories (dependency, naming, interface, structure, DDD)
 - **Tier system** — rules declare their config requirements; only applicable rules run
 - **Presets** — start with `clean-arch` or build your own configuration
 - **Location strategies** — map your project structure (`nested-domain`, `flat-pkg`) to architectural layers
@@ -55,7 +55,7 @@ rules:
 
 ## Rules
 
-### Dependency (9 rules)
+### Dependency (11 rules)
 
 | Rule | Tier | Description |
 |------|------|-------------|
@@ -68,8 +68,10 @@ rules:
 | `dependency/public-service-isolation` | layer-aware | Public Service files must not import repo/infra/client/event/handler layers |
 | `dependency/app-service-mixing` | layer-aware | App Service files must not mix repo and infra/client/event imports |
 | `dependency/cross-boundary` | component-aware | Cross-component imports must use public interfaces only |
+| `dependency/subdomain-isolation` | component-aware | Sub-components within a component must not import each other |
+| `dependency/handler-infra-isolation` | layer-aware | Handler layer must not import infrastructure layers directly |
 
-### Naming (7 rules)
+### Naming (8 rules)
 
 | Rule | Tier | Description |
 |------|------|-------------|
@@ -80,6 +82,7 @@ rules:
 | `naming/forbidden-names` | universal | Types with certain prefixes or suffixes are forbidden |
 | `naming/filename-matches-type` | universal | The primary type in a file should match the filename |
 | `naming/layer-type-pattern` | layer-aware | Enforce type naming conventions per layer/tag |
+| `naming/no-domain-prefix` | component-aware | Exported types should not be prefixed with the component name |
 
 ### Interface (5 rules)
 
