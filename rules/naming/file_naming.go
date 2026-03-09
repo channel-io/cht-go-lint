@@ -48,7 +48,9 @@ func (r *FileNaming) Check(ctx *lint.Context) error {
 		}
 
 		// Check if filename repeats the package name (e.g., install/install.go)
-		if noPackageStutter && name == file.Package {
+		// Normalize both: lowercase + remove underscores for robust comparison
+		if noPackageStutter && file.Location.Tag("isAlias") != "true" &&
+			strings.ReplaceAll(strings.ToLower(name), "_", "") == strings.ReplaceAll(strings.ToLower(file.Package), "_", "") {
 			ctx.Report.Add(lint.Violation{
 				Rule:     "naming/file-naming",
 				Severity: ctx.Severity,

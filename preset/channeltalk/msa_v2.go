@@ -44,19 +44,43 @@ func init() {
 			"dependency/app-service-mixing":       {Severity: lint.Error},
 
 			// Naming rules
-			"naming/no-stutter":               {Severity: lint.Error},
-			"naming/impl-naming":              {Severity: lint.Error},
-			"naming/constructor-naming":        {Severity: lint.Error},
-			"naming/file-naming":              {Severity: lint.Error},
+			"naming/no-stutter": {
+				Severity: lint.Error,
+				Options:  map[string]any{"check_component_name": true},
+			},
+			"naming/impl-naming":       {Severity: lint.Error},
+			"naming/constructor-naming": {Severity: lint.Error},
+			"naming/file-naming": {
+				Severity: lint.Error,
+				Options:  map[string]any{"no_package_stutter": true},
+			},
 			"naming/forbidden-names": {
 				Severity: lint.Warn,
 				Options:  map[string]any{"forbidden_suffixes": []any{"Helper"}},
 			},
-			"naming/filename-matches-type":    {Severity: lint.Warn},
-			"naming/public-service-v2":        {Severity: lint.Error},
-			"naming/saga-naming":              {Severity: lint.Error},
-			"naming/saga-method-ordering":     {Severity: lint.Warn},
-			"naming/filename-package-stutter": {Severity: lint.Warn},
+			"naming/filename-matches-type": {Severity: lint.Warn},
+			"naming/layer-type-pattern": {
+				Severity: lint.Error,
+				Options: map[string]any{
+					"patterns": []any{
+						map[string]any{
+							"tag":                          "isPublicSvc",
+							"required_interface":           "Public",
+							"required_struct":              "public",
+							"no_impl_suffix":               true,
+							"constructor_returns_interface": true,
+						},
+						map[string]any{
+							"tag":                          "isSaga",
+							"filename_contains":            "saga",
+							"skip_tags":                    map[string]any{"isFxCompanion": "true"},
+							"required_interface_suffix":    "Saga",
+							"required_struct_match":        "case_insensitive",
+							"constructor_returns_interface": true,
+						},
+					},
+				},
+			},
 
 			// Interface rules
 			"interface/impl-pattern":      {Severity: lint.Error},
@@ -70,7 +94,21 @@ func init() {
 				Severity: lint.Warn,
 				Options:  map[string]any{"dirs": []any{"model", "svc"}},
 			},
-			"structure/forbidden-dirs": {Severity: lint.Error},
+			"structure/forbidden-dirs": {
+				Severity: lint.Error,
+				Options: map[string]any{
+					"scoped": []any{
+						map[string]any{
+							"scope_paths": []any{"internal/domain/*/subdomain/*"},
+							"names":       []any{"handler", "consumer", "infra", "client"},
+						},
+						map[string]any{
+							"scope_paths": []any{"internal/domain/*"},
+							"names":       []any{"domain"},
+						},
+					},
+				},
+			},
 			"structure/file-content": {
 				Severity: lint.Error,
 				Options: map[string]any{
@@ -81,15 +119,59 @@ func init() {
 					},
 				},
 			},
-			"structure/declaration-order":     {Severity: lint.Warn},
-			"structure/import-alias":          {Severity: lint.Warn},
+			"structure/declaration-order": {
+				Severity: lint.Warn,
+				Options: map[string]any{
+					"layer_overrides": map[string]any{
+						"saga": []any{"const", "var", "interface", "func", "struct"},
+					},
+				},
+			},
+			"structure/import-alias": {
+				Severity: lint.Warn,
+				Options:  map[string]any{"no_same_component_alias": true},
+			},
 			"structure/delegation-only": {
 				Severity: lint.Warn,
 				Options:  map[string]any{"target_layers": []any{"publicsvc"}},
 			},
-			"structure/alias-exports":         {Severity: lint.Error},
-			"structure/domain-alias-required": {Severity: lint.Error},
-			"structure/fx-file-placement":     {Severity: lint.Error},
+			"structure/required-declarations": {
+				Severity: lint.Error,
+				Options: map[string]any{
+					"files": map[string]any{
+						"alias.go": map[string]any{
+							"tag":              "isAlias",
+							"required_aliases": []any{"Svc", "Public"},
+						},
+					},
+				},
+			},
+			"structure/required-files": {
+				Severity: lint.Error,
+				Options: map[string]any{
+					"rules": []any{
+						map[string]any{
+							"scope":            "internal/domain/*",
+							"skip_suffix":      "fx",
+							"when_has_subdirs": true,
+							"layer_dirs":       []any{"model", "repo", "svc", "service", "infra", "client", "event", "handler", "consumer"},
+							"required":         []any{"alias.go"},
+						},
+					},
+				},
+			},
+			"structure/file-placement": {
+				Severity: lint.Error,
+				Options: map[string]any{
+					"rules": []any{
+						map[string]any{
+							"filename":   "fx.go",
+							"dir_suffix": "fx",
+							"skip_dirs":  []any{"test", "vendor"},
+						},
+					},
+				},
+			},
 		},
 	})
 }
