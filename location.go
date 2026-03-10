@@ -230,12 +230,22 @@ func (s *NestedDomainStrategy) Identify(relPath string) Location {
 
 		// If no subdomain found, look for layer directly under component
 		if loc.Layer == "" {
-			for _, p := range parts[1:] {
+			for i, p := range parts[1:] {
 				if layer, ok := s.LayerDirs[p]; ok {
 					loc.Layer = layer
+					// Layer at parts[1] (index 0 relative) means directly under component = app service.
+					// Deeper means it's inside an implicit sub-domain directory.
+					if i == 0 {
+						loc.Tags["isDomainSvc"] = "true"
+					}
 					break
 				}
 			}
+		}
+
+		// Domain-level svc (layer directly under component, no subdomain) is an App Service.
+		if loc.Layer == "service" && loc.Tags["isDomainSvc"] == "true" {
+			loc.Layer = "appsvc"
 		}
 
 		// Check for alias file

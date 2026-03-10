@@ -24,6 +24,11 @@ func (r *LayerDirection) Meta() lint.Meta {
 
 func (r *LayerDirection) Check(ctx *lint.Context) error {
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		// FX companion files are DI wiring — skip layer direction checks.
+		if file.Location.IsFxCompanion() {
+			return nil
+		}
+
 		sourceLayer := file.Location.Layer
 		if sourceLayer == "" {
 			return nil
