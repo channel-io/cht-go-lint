@@ -11,7 +11,7 @@ func init() {
 			{Name: "service", Aliases: []string{"svc"}, MayImport: []string{"model", "repo", "service"}},
 			{Name: "appsvc", Aliases: []string{"app_svc"}, MayImport: []string{"model", "repo", "service"}},
 			{Name: "publicsvc", Aliases: []string{"public_svc"}, MayImport: []string{"model", "appsvc"}},
-			{Name: "handler", MayImport: []string{"model", "service", "appsvc", "publicsvc"}},
+			{Name: "handler", MayImport: []string{"model", "service", "appsvc", "publicsvc", "saga"}},
 			{Name: "client", MayImport: []string{"model"}},
 			{Name: "event", MayImport: []string{"model"}},
 			{Name: "infra", MayImport: []string{"model", "repo"}},
@@ -39,7 +39,10 @@ func init() {
 				Options:  map[string]any{"framework": "fx", "companion_suffix": "fx"},
 			},
 			"dependency/infra-in-core":           {Severity: lint.Error},
-			"dependency/handler-placement":        {Severity: lint.Error},
+			"dependency/handler-placement": {
+				Severity: lint.Error,
+				Options:  map[string]any{"allowed_imports": []any{"model", "service", "appsvc", "publicsvc", "saga"}},
+			},
 			"dependency/public-service-isolation": {Severity: lint.Error},
 			"dependency/app-service-mixing":       {Severity: lint.Error},
 			"dependency/subdomain-isolation": {
@@ -54,7 +57,10 @@ func init() {
 				Options:  map[string]any{"check_component_name": true, "skip_files": []any{"alias.go"}},
 			},
 			"naming/impl-naming":       {Severity: lint.Error},
-			"naming/constructor-naming": {Severity: lint.Error},
+			"naming/constructor-naming": {
+				Severity: lint.Error,
+				Options:  map[string]any{"skip_files": []any{"fx.go"}},
+			},
 			"naming/file-naming": {
 				Severity: lint.Error,
 				Options:  map[string]any{"no_package_stutter": true},
@@ -65,7 +71,7 @@ func init() {
 			},
 			"naming/filename-matches-type": {
 				Severity: lint.Warn,
-				Options:  map[string]any{"skip_files": []any{"alias.go"}},
+				Options:  map[string]any{"skip_files": []any{"alias.go", "dto.go", "types.go", "fx.go"}},
 			},
 			"naming/no-domain-prefix": {
 				Severity: lint.Error,
@@ -95,7 +101,10 @@ func init() {
 			},
 
 			// Interface rules
-			"interface/impl-pattern":      {Severity: lint.Error},
+			"interface/impl-pattern": {
+				Severity: lint.Error,
+				Options:  map[string]any{"skip_layers": []any{"service", "saga"}},
+			},
 			"interface/constructor-return": {Severity: lint.Error},
 			"interface/colocation":         {Severity: lint.Error},
 			"interface/one-per-file":       {Severity: lint.Warn},

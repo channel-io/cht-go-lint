@@ -28,7 +28,15 @@ func (r *ImplPattern) Check(ctx *lint.Context) error {
 		return nil
 	}
 
+	skipLayers := make(map[string]bool)
+	for _, l := range ctx.Options.StringSlice("skip_layers") {
+		skipLayers[l] = true
+	}
+
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		if skipLayers[file.Location.Layer] {
+			return nil
+		}
 		var exportedIfaces []lint.TypeDecl
 		hasUnexportedStruct := false
 
