@@ -31,6 +31,7 @@ type TypeDecl struct {
 	Exported    bool
 	IsInterface bool
 	IsStruct    bool
+	IsAlias     bool     // type X = Y (type alias)
 	Embedded    []string // embedded type names
 	Methods     []string // method names (for interfaces)
 	Pos         token.Position
@@ -85,6 +86,7 @@ func extractTypes(f *ast.File, fset *token.FileSet) []TypeDecl {
 			td := TypeDecl{
 				Name:     ts.Name.Name,
 				Exported: ts.Name.IsExported(),
+				IsAlias:  ts.Assign.IsValid(),
 				Pos:      fset.Position(ts.Pos()),
 			}
 			switch t := ts.Type.(type) {

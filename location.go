@@ -190,6 +190,16 @@ func (s *NestedDomainStrategy) Identify(relPath string) Location {
 		if strings.HasSuffix(loc.Component, "fx") {
 			loc.Tags["isFxCompanion"] = "true"
 		}
+		// Check for handler subdirectory within saga
+		if len(parts) > 1 {
+			subParts := strings.Split(parts[1], "/")
+			for _, p := range subParts {
+				if layer, ok := s.LayerDirs[p]; ok {
+					loc.Layer = layer
+					break
+				}
+			}
+		}
 		return loc
 	}
 

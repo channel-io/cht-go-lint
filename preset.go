@@ -64,14 +64,21 @@ func resolvePresets(cfg *Config) {
 			cfg.GoLint = p.GoLint
 		}
 
-		// Merge rules (preset provides defaults, user overrides)
+		// Merge rules (preset provides defaults, user overrides severity).
+		// If the user config has a rule with only severity (no options),
+		// inherit options from the preset.
 		if p.Rules != nil {
 			if cfg.Rules == nil {
 				cfg.Rules = make(map[string]RuleConfig)
 			}
 			for name, rc := range p.Rules {
-				if _, exists := cfg.Rules[name]; !exists {
+				existing, exists := cfg.Rules[name]
+				if !exists {
 					cfg.Rules[name] = rc
+				} else if existing.Options == nil && rc.Options != nil {
+					// User only overrode severity — inherit preset options.
+					existing.Options = rc.Options
+					cfg.Rules[name] = existing
 				}
 			}
 		}
