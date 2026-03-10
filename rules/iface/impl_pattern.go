@@ -2,6 +2,7 @@ package iface
 
 import (
 	"fmt"
+	"path/filepath"
 
 	lint "github.com/channel-io/cht-go-lint"
 )
@@ -32,9 +33,16 @@ func (r *ImplPattern) Check(ctx *lint.Context) error {
 	for _, l := range ctx.Options.StringSlice("skip_layers") {
 		skipLayers[l] = true
 	}
+	skipFiles := make(map[string]bool)
+	for _, f := range ctx.Options.StringSlice("skip_files") {
+		skipFiles[f] = true
+	}
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
 		if skipLayers[file.Location.Layer] {
+			return nil
+		}
+		if skipFiles[filepath.Base(file.RelPath)] {
 			return nil
 		}
 		var exportedIfaces []lint.TypeDecl

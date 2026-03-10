@@ -50,6 +50,10 @@ func (r *ConstructorReturn) Check(ctx *lint.Context) error {
 			returnsIface := false
 			for _, rt := range fd.ReturnTypes {
 				clean := strings.TrimPrefix(rt, "*")
+				// Strip generic type parameters: TypedFunction[REQ, RES] → TypedFunction
+				if idx := strings.Index(clean, "["); idx >= 0 {
+					clean = clean[:idx]
+				}
 				if ifaceNames[clean] {
 					returnsIface = true
 					break

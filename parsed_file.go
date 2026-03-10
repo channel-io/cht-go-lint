@@ -3,6 +3,7 @@ package lint
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 )
 
 // ParsedFile holds parsed information about a single Go source file.
@@ -184,6 +185,16 @@ func typeToString(expr ast.Expr) string {
 		return "func(...)"
 	case *ast.ChanType:
 		return "chan " + typeToString(t.Value)
+	case *ast.IndexExpr:
+		// Generic type with single type parameter: T[X]
+		return typeToString(t.X) + "[" + typeToString(t.Index) + "]"
+	case *ast.IndexListExpr:
+		// Generic type with multiple type parameters: T[X, Y]
+		params := make([]string, len(t.Indices))
+		for i, idx := range t.Indices {
+			params[i] = typeToString(idx)
+		}
+		return typeToString(t.X) + "[" + strings.Join(params, ", ") + "]"
 	}
 	return ""
 }
