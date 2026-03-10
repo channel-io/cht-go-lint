@@ -91,6 +91,11 @@ func (r *ForbiddenDirs) Check(ctx *lint.Context) error {
 		relPath, _ := filepath.Rel(root, path)
 		relPath = filepath.ToSlash(relPath)
 
+		// Skip excluded paths
+		if relPath != "." && ctx.Analyzer.IsExcluded(relPath) {
+			return filepath.SkipDir
+		}
+
 		// Check global forbidden dirs
 		if forbidden[name] {
 			ctx.Report.Add(lint.Violation{

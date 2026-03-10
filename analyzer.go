@@ -43,8 +43,8 @@ func (a *CodebaseAnalyzer) ResetCache() {
 	a.fset = token.NewFileSet()
 }
 
-// isExcluded checks whether a relative path should be excluded from analysis.
-func (a *CodebaseAnalyzer) isExcluded(relPath string) bool {
+// IsExcluded checks whether a relative path should be excluded from analysis.
+func (a *CodebaseAnalyzer) IsExcluded(relPath string) bool {
 	for _, prefix := range a.excludePaths {
 		p := filepath.ToSlash(strings.TrimSuffix(prefix, "/"))
 		if relPath == p || strings.HasPrefix(relPath, p+"/") {
@@ -132,7 +132,7 @@ func (a *CodebaseAnalyzer) WalkGoFiles(fn func(path string, file *ParsedFile) er
 			}
 			if len(a.excludePaths) > 0 {
 				rel, _ := filepath.Rel(a.root, path)
-				if rel != "." && a.isExcluded(filepath.ToSlash(rel)) {
+				if rel != "." && a.IsExcluded(filepath.ToSlash(rel)) {
 					return filepath.SkipDir
 				}
 			}
@@ -165,7 +165,7 @@ func (a *CodebaseAnalyzer) WalkDir(dir string, fn func(path string, file *Parsed
 			}
 			if len(a.excludePaths) > 0 {
 				rel, _ := filepath.Rel(a.root, path)
-				if rel != "." && a.isExcluded(filepath.ToSlash(rel)) {
+				if rel != "." && a.IsExcluded(filepath.ToSlash(rel)) {
 					return filepath.SkipDir
 				}
 			}
