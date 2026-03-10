@@ -36,12 +36,20 @@ func (r *FilenameMatchesType) Check(ctx *lint.Context) error {
 			return nil
 		}
 
-		// Find the first exported type (prefer interfaces, then structs, then any).
+		// Find the primary type: prefer exported interface, then first exported type.
 		var primaryType string
 		for _, td := range file.Types {
-			if td.Exported {
+			if td.Exported && td.IsInterface {
 				primaryType = td.Name
 				break
+			}
+		}
+		if primaryType == "" {
+			for _, td := range file.Types {
+				if td.Exported {
+					primaryType = td.Name
+					break
+				}
 			}
 		}
 		if primaryType == "" {
