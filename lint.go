@@ -29,6 +29,13 @@ func Run(t *testing.T, cfg *Config) {
 
 // Check runs all enabled rules against the codebase and returns a report.
 func Check(cfg *Config) *Report {
+	return CheckWithFix(cfg, false, false)
+}
+
+// CheckWithFix runs optional auto-fix followed by rule checks.
+// When fix is true, fixable rules are applied before checking.
+// When dryRun is true, fixes are reported but files are not modified.
+func CheckWithFix(cfg *Config, fix, dryRun bool) *Report {
 	// Resolve preset configurations
 	resolvePresets(cfg)
 
@@ -41,7 +48,18 @@ func Check(cfg *Config) *Report {
 	// Create report
 	rpt := NewReport()
 
-	// Run each enabled rule
+	// Fix phase (before check)
+	if fix {
+		results := RunFixers(cfg, a, dryRun)
+		for _, r := range results {
+			rpt.AddFixResult(r)
+		}
+		if !dryRun && len(results) > 0 {
+			a.ResetCache()
+		}
+	}
+
+	// Check phase
 	for _, rule := range All() {
 		name := rule.Meta().Name
 		sev := cfg.EffectiveSeverity(name, "")

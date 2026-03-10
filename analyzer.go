@@ -34,6 +34,15 @@ func NewAnalyzer(root, modulePath string, strategy LocationStrategy, excludePath
 	}
 }
 
+// ResetCache clears all cached parsed files and resets the file set.
+// This is used after auto-fix to re-parse modified files.
+func (a *CodebaseAnalyzer) ResetCache() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.cache = make(map[string]*ParsedFile)
+	a.fset = token.NewFileSet()
+}
+
 // isExcluded checks whether a relative path should be excluded from analysis.
 func (a *CodebaseAnalyzer) isExcluded(relPath string) bool {
 	for _, prefix := range a.excludePaths {

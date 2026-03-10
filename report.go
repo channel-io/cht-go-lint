@@ -6,10 +6,11 @@ import (
 	"sync"
 )
 
-// Report collects violations from rule checks.
+// Report collects violations and fix results from rule checks.
 type Report struct {
 	mu         sync.Mutex
 	violations []Violation
+	fixResults []FixResult
 }
 
 // NewReport creates an empty report.
@@ -116,6 +117,22 @@ func (r *Report) String() string {
 	}
 	fmt.Fprintf(&sb, "\n%d error(s), %d warning(s)\n", r.ErrorCount(), r.WarningCount())
 	return sb.String()
+}
+
+// AddFixResult records a fix result.
+func (r *Report) AddFixResult(fr FixResult) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.fixResults = append(r.fixResults, fr)
+}
+
+// FixResults returns all recorded fix results.
+func (r *Report) FixResults() []FixResult {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]FixResult, len(r.fixResults))
+	copy(out, r.fixResults)
+	return out
 }
 
 // ByRule groups violations by rule name.

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	lint "github.com/channel-io/cht-go-lint"
+	_ "github.com/channel-io/cht-go-lint/fixers"
 	"github.com/channel-io/cht-go-lint/formatter"
 	_ "github.com/channel-io/cht-go-lint/preset"
 	_ "github.com/channel-io/cht-go-lint/preset/channeltalk"
@@ -43,6 +44,8 @@ func cmdCheck(args []string) {
 	ruleFilter := fs.String("rule", "", "run specific rule(s) (comma-separated)")
 	skipGoLint := fs.Bool("skip-go-lint", false, "skip golangci-lint integration")
 	goLintArgs := fs.String("go-lint-args", "", "extra args to pass to golangci-lint (space-separated)")
+	fix := fs.Bool("fix", false, "auto-fix fixable violations before checking")
+	dryRun := fs.Bool("dry-run", false, "show what --fix would change without writing")
 	_ = fs.Parse(args)
 
 	root := "."
@@ -94,7 +97,27 @@ func cmdCheck(args []string) {
 		cfg.Rules = filtered
 	}
 
-	report := lint.Check(cfg)
+	report := lint.CheckWithFix(cfg, *fix || *dryRun, *dryRun)
+
+	// Print fix results
+	if *fix || *dryRun {
+		fixResults := report.FixResults()
+		if len(fixResults) > 0 {
+			verb := "Fixed"
+			if *dryRun {
+				verb = "Would fix"
+			}
+			byRule := make(map[string]int)
+			for _, fr := range fixResults {
+				byRule[fr.RuleName]++
+			}
+			fmt.Fprintf(os.Stderr, "%s %d file(s):\n", verb, len(fixResults))
+			for rule, count := range byRule {
+				fmt.Fprintf(os.Stderr, "  %s: %d file(s)\n", rule, count)
+			}
+			fmt.Fprintln(os.Stderr)
+		}
+	}
 
 	// Format output
 	var f formatter.Formatter
@@ -222,6 +245,8 @@ Options for 'check':
   --config <path>        Config file path (default: auto-detect .cht-go-lint.yaml)
   --format <fmt>         Output format: text, json, github (default: text)
   --rule <names>         Run specific rules (comma-separated)
+  --fix                  Auto-fix fixable violations before checking
+  --dry-run              Show what --fix would change without writing
   --skip-go-lint         Skip golangci-lint integration
   --go-lint-args <args>  Extra args to pass to golangci-lint (space-separated)`)
 }
