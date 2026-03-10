@@ -9,7 +9,7 @@ func init() {
 			{Name: "model", MayImport: []string{}},
 			{Name: "repo", MayImport: []string{"model"}},
 			{Name: "service", Aliases: []string{"svc"}, MayImport: []string{"model", "repo", "service"}},
-			{Name: "appsvc", Aliases: []string{"app_svc"}, MayImport: []string{"model", "service"}},
+			{Name: "appsvc", Aliases: []string{"app_svc"}, MayImport: []string{"model", "repo", "service", "infra"}},
 			{Name: "publicsvc", Aliases: []string{"public_svc"}, MayImport: []string{"model", "appsvc"}},
 			{Name: "handler", MayImport: []string{"model", "service", "appsvc", "publicsvc", "saga"}},
 			{Name: "client", MayImport: []string{"model"}},
@@ -66,11 +66,11 @@ func init() {
 				Options:  map[string]any{"no_package_stutter": true},
 			},
 			"naming/forbidden-names": {
-				Severity: lint.Warn,
+				Severity: lint.Error,
 				Options:  map[string]any{"forbidden_suffixes": []any{"Helper"}},
 			},
 			"naming/filename-matches-type": {
-				Severity: lint.Warn,
+				Severity: lint.Error,
 				Options:  map[string]any{"skip_files": []any{"alias.go", "dto.go", "types.go", "fx.go"}},
 			},
 			"naming/no-domain-prefix": {
@@ -103,11 +103,11 @@ func init() {
 			// Interface rules
 			"interface/impl-pattern": {
 				Severity: lint.Error,
-				Options:  map[string]any{"skip_layers": []any{"service", "saga"}},
+				Options:  map[string]any{"skip_layers": []any{"repo", "service", "saga"}},
 			},
 			"interface/constructor-return": {Severity: lint.Error},
 			"interface/colocation":         {Severity: lint.Error},
-			"interface/one-per-file":       {Severity: lint.Warn},
+			"interface/one-per-file":       {Severity: lint.Error},
 			"interface/required-embedding": {
 				Severity: lint.Error,
 				Options: map[string]any{
@@ -120,7 +120,7 @@ func init() {
 
 			// Structure rules
 			"structure/required-dirs": {
-				Severity: lint.Warn,
+				Severity: lint.Error,
 				Options:  map[string]any{"dirs": []any{"model", "svc"}},
 			},
 			"structure/forbidden-dirs": {
@@ -149,7 +149,7 @@ func init() {
 				},
 			},
 			"structure/declaration-order": {
-				Severity: lint.Warn,
+				Severity: lint.Error,
 				Options: map[string]any{
 					"layer_overrides": map[string]any{
 						"saga": []any{"const", "var", "interface", "func", "struct"},
@@ -157,11 +157,11 @@ func init() {
 				},
 			},
 			"structure/import-alias": {
-				Severity: lint.Warn,
+				Severity: lint.Error,
 				Options:  map[string]any{"no_same_component_alias": true},
 			},
 			"structure/delegation-only": {
-				Severity: lint.Warn,
+				Severity: lint.Error,
 				Options:  map[string]any{"target_layers": []any{"publicsvc"}},
 			},
 			"structure/required-declarations": {
