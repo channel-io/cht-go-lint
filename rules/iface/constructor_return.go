@@ -2,6 +2,7 @@ package iface
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	lint "github.com/channel-io/cht-go-lint"
@@ -25,19 +26,49 @@ func (r *ConstructorReturn) Meta() lint.Meta {
 
 func (r *ConstructorReturn) Check(ctx *lint.Context) error {
 	excludeInternal := ctx.Options.Bool("exclude_internal", false)
+	skipFiles := make(map[string]bool)
+	for _, f := range ctx.Options.StringSlice("skip_files") {
+		skipFiles[f] = true
+	}
 
-	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
-		// Collect exported interface names in this file.
-		ifaceNames := make(map[string]bool)
+	// Phase 1: Collect all exported interfaces by package directory.
+	pkgInterfaces := make(map[string]map[string]bool)
+	_ = ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		pkgDir := filepath.Dir(file.RelPath)
+		if pkgInterfaces[pkgDir] == nil {
+			pkgInterfaces[pkgDir] = make(map[string]bool)
+		}
 		for _, td := range file.Types {
 			if td.IsInterface && td.Exported {
-				ifaceNames[td.Name] = true
+				pkgInterfaces[pkgDir][td.Name] = true
 			}
 		}
+		return nil
+	})
 
-		if len(ifaceNames) == 0 {
+	// Phase 2: Check constructors. Only check files that contain at least one
+	// exported interface (gate), but use package-level interface names for the
+	// return-type lookup so split files are handled correctly.
+	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		if skipFiles[filepath.Base(file.RelPath)] {
 			return nil
 		}
+
+		// Gate: only check files that have at least one exported interface.
+		hasInterface := false
+		for _, td := range file.Types {
+			if td.IsInterface && td.Exported {
+				hasInterface = true
+				break
+			}
+		}
+		if !hasInterface {
+			return nil
+		}
+
+		// Use package-level interfaces for lookup.
+		pkgDir := filepath.Dir(file.RelPath)
+		ifaceNames := pkgInterfaces[pkgDir]
 
 		for _, fd := range file.Funcs {
 			if !fd.IsConstructor || fd.ReceiverType != "" {
