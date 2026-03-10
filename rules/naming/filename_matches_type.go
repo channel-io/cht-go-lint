@@ -26,8 +26,16 @@ func (r *FilenameMatchesType) Meta() lint.Meta {
 
 func (r *FilenameMatchesType) Check(ctx *lint.Context) error {
 	strict := ctx.Options.Bool("strict", false)
+	skipFiles := make(map[string]bool)
+	for _, f := range ctx.Options.StringSlice("skip_files") {
+		skipFiles[f] = true
+	}
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		if skipFiles[filepath.Base(file.RelPath)] {
+			return nil
+		}
+
 		// Find the first exported type (prefer interfaces, then structs, then any).
 		var primaryType string
 		for _, td := range file.Types {

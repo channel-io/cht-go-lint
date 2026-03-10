@@ -2,6 +2,7 @@ package naming
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	lint "github.com/channel-io/cht-go-lint"
@@ -26,8 +27,16 @@ func (r *NoStutter) Meta() lint.Meta {
 func (r *NoStutter) Check(ctx *lint.Context) error {
 	excludeConstructors := ctx.Options.Bool("exclude_constructors", true)
 	checkComponentName := ctx.Options.Bool("check_component_name", false)
+	skipFiles := make(map[string]bool)
+	for _, f := range ctx.Options.StringSlice("skip_files") {
+		skipFiles[f] = true
+	}
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		if skipFiles[filepath.Base(file.RelPath)] {
+			return nil
+		}
+
 		pkgLower := strings.ToLower(file.Package)
 
 		for _, td := range file.Types {

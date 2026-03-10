@@ -51,7 +51,7 @@ func init() {
 			// Naming rules
 			"naming/no-stutter": {
 				Severity: lint.Error,
-				Options:  map[string]any{"check_component_name": true},
+				Options:  map[string]any{"check_component_name": true, "skip_files": []any{"alias.go"}},
 			},
 			"naming/impl-naming":       {Severity: lint.Error},
 			"naming/constructor-naming": {Severity: lint.Error},
@@ -63,7 +63,10 @@ func init() {
 				Severity: lint.Warn,
 				Options:  map[string]any{"forbidden_suffixes": []any{"Helper"}},
 			},
-			"naming/filename-matches-type": {Severity: lint.Warn},
+			"naming/filename-matches-type": {
+				Severity: lint.Warn,
+				Options:  map[string]any{"skip_files": []any{"alias.go"}},
+			},
 			"naming/no-domain-prefix": {
 				Severity: lint.Error,
 				Options:  map[string]any{"skip_layers": []any{"model", "repo"}},
