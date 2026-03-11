@@ -32,6 +32,9 @@ func (r *FileNaming) Check(ctx *lint.Context) error {
 	noPackageStutter := ctx.Options.Bool("no_package_stutter", false)
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
+		if ctx.Options.ShouldSkipFile(file.RelPath) {
+			return nil
+		}
 		base := filepath.Base(file.RelPath)
 		name := strings.TrimSuffix(base, ".go")
 

@@ -2,7 +2,9 @@ package lint
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -174,6 +176,30 @@ func (o Options) MapSlice(key string) []map[string]any {
 		return result
 	}
 	return nil
+}
+
+// ShouldSkipFile checks whether relPath should be skipped based on
+// the "skip_files" option. It supports:
+//   - bare filename match  (e.g. "foo.go")
+//   - path-suffix match    (e.g. "encrypt/token_encryptor.go")
+//   - glob match            (e.g. "internal/*/dto.go")
+func (o Options) ShouldSkipFile(relPath string) bool {
+	for _, pattern := range o.StringSlice("skip_files") {
+		if filepath.Base(relPath) == pattern {
+			return true
+		}
+		if strings.Contains(pattern, "/") {
+			if strings.HasSuffix(relPath, pattern) {
+				return true
+			}
+			if strings.ContainsAny(pattern, "*?[") {
+				if matched, _ := filepath.Match(pattern, relPath); matched {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // --- Rule Registry ---

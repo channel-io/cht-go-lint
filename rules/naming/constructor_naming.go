@@ -2,7 +2,6 @@ package naming
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	lint "github.com/channel-io/cht-go-lint"
@@ -27,13 +26,9 @@ func (r *ConstructorNaming) Meta() lint.Meta {
 func (r *ConstructorNaming) Check(ctx *lint.Context) error {
 	requireIfaceReturn := ctx.Options.Bool("require_interface_return", false)
 	forbiddenReturnNames := ctx.Options.StringSlice("forbidden_return_names")
-	skipFiles := make(map[string]bool)
-	for _, f := range ctx.Options.StringSlice("skip_files") {
-		skipFiles[f] = true
-	}
 
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
-		if skipFiles[filepath.Base(file.RelPath)] {
+		if ctx.Options.ShouldSkipFile(file.RelPath) {
 			return nil
 		}
 		// Build a set of interface names in this file for require_interface_return check.

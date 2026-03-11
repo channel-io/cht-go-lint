@@ -26,10 +26,6 @@ func (r *ConstructorReturn) Meta() lint.Meta {
 
 func (r *ConstructorReturn) Check(ctx *lint.Context) error {
 	excludeInternal := ctx.Options.Bool("exclude_internal", false)
-	skipFiles := make(map[string]bool)
-	for _, f := range ctx.Options.StringSlice("skip_files") {
-		skipFiles[f] = true
-	}
 
 	// Phase 1: Collect all exported interfaces by package directory.
 	pkgInterfaces := make(map[string]map[string]bool)
@@ -50,7 +46,7 @@ func (r *ConstructorReturn) Check(ctx *lint.Context) error {
 	// exported interface (gate), but use package-level interface names for the
 	// return-type lookup so split files are handled correctly.
 	return ctx.Analyzer.WalkGoFiles(func(path string, file *lint.ParsedFile) error {
-		if skipFiles[filepath.Base(file.RelPath)] {
+		if ctx.Options.ShouldSkipFile(file.RelPath) {
 			return nil
 		}
 
