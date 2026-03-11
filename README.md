@@ -320,9 +320,13 @@ Options for 'check':
   --config <path>        Config file path (default: auto-detect .cht-go-lint.yaml)
   --format <fmt>         Output format: text, json, github (default: text)
   --rule <names>         Run specific rules (comma-separated)
+  --fix                  Auto-fix fixable violations before checking
+  --dry-run              Show what --fix would change without writing
   --skip-go-lint         Skip golangci-lint integration
   --go-lint-args <args>  Extra args to pass to golangci-lint (space-separated)
 ```
+
+`--fix` runs both built-in fixers (e.g. `declaration_order`) and golangci-lint's `--fix` (e.g. goimports, gofmt), then reports any remaining violations.
 
 ### GitHub Actions
 
@@ -332,8 +336,8 @@ Options for 'check':
     go-version: '1.22'
 - name: Install lint tools
   run: |
-    go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.5.0
-    go install github.com/channel-io/cht-go-lint/cmd/cht-go-lint@v0.3.0
+    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+    go install github.com/channel-io/cht-go-lint/cmd/cht-go-lint@latest
 - run: cht-go-lint check --format github
 ```
 
