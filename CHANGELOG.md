@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `--fix` now passes `--fix` to golangci-lint, auto-fixing goimports/gofmt/etc. in addition to built-in fixers
 - `exclude_paths` config: exclude directories from architecture rule scanning (e.g., `lib`, `cmd`, `test`)
 - `go_lint` config: golangci-lint integration — run both architecture and golangci-lint checks with a single `cht-go-lint check` command
 - `--skip-go-lint` CLI flag: skip golangci-lint integration for a single run

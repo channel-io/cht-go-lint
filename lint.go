@@ -91,7 +91,7 @@ func CheckWithFix(cfg *Config, fix, dryRun bool) *Report {
 	}
 
 	// Run golangci-lint integration
-	if err := RunGoLint(cfg, rpt); err != nil {
+	if err := RunGoLint(cfg, rpt, fix && !dryRun); err != nil {
 		rpt.Add(Violation{Rule: "go/golangci-lint", Severity: Error, Message: err.Error()})
 	}
 
