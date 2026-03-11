@@ -26,7 +26,9 @@ type golangciLintPos struct {
 }
 
 // RunGoLint executes golangci-lint as a subprocess and adds violations to the report.
-func RunGoLint(cfg *Config, rpt *Report) error {
+// When fix is true, golangci-lint is invoked with --fix so that auto-fixable issues
+// (e.g. goimports, gofmt) are corrected in-place; remaining violations are still reported.
+func RunGoLint(cfg *Config, rpt *Report, fix bool) error {
 	if cfg.GoLint == nil || !cfg.GoLint.Enabled {
 		return nil
 	}
@@ -51,6 +53,10 @@ func RunGoLint(cfg *Config, rpt *Report) error {
 		"--issues-exit-code", "0",
 		"--max-issues-per-linter", "0",
 		"--max-same-issues", "0",
+	}
+
+	if fix {
+		args = append(args, "--fix")
 	}
 
 	if cfg.GoLint.Config != "" {
