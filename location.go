@@ -142,6 +142,16 @@ func NewNestedDomainStrategy(cfg *Config) *NestedDomainStrategy {
 			s.LayerDirs[a] = l.Name
 		}
 	}
+	// Component-scoped layer names also map to dir names so files get a Layer
+	// assigned; the rules disambiguate by component.
+	for _, comp := range cfg.Components {
+		for _, l := range comp.Layers {
+			s.LayerDirs[l.Name] = l.Name
+			for _, a := range l.Aliases {
+				s.LayerDirs[a] = l.Name
+			}
+		}
+	}
 	// Apply location options if provided
 	if cfg.Location != nil && cfg.Location.Options != nil {
 		if v, ok := cfg.Location.Options["domain_root"].(string); ok {
@@ -310,6 +320,16 @@ func NewFlatPkgStrategy(cfg *Config) *FlatPkgStrategy {
 		s.LayerDirs[l.Name] = l.Name
 		for _, a := range l.Aliases {
 			s.LayerDirs[a] = l.Name
+		}
+	}
+	// Component-scoped layer names also map to dir names so files get a Layer
+	// assigned; the rules disambiguate by component.
+	for _, comp := range cfg.Components {
+		for _, l := range comp.Layers {
+			s.LayerDirs[l.Name] = l.Name
+			for _, a := range l.Aliases {
+				s.LayerDirs[a] = l.Name
+			}
 		}
 	}
 	if cfg.Location != nil && cfg.Location.Options != nil {

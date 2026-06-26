@@ -187,6 +187,21 @@ components:
   - name: order
     path: internal/domain/order
 
+# Component-scoped layers: per-component layer definitions for dependency/layer-direction.
+# The same layer name can carry different rules in different components, and a
+# component's layers only govern imports within that component (cross-component
+# imports remain dependency/module-isolation's concern). Falls back to the global
+# `layers` when a component defines none.
+components:
+  - name: kafka
+    layers:
+      - { name: contract, may_import: [] }
+      - { name: pool,     may_import: [contract] }
+      - { name: publish,  may_import: [contract] }   # publish must not import pool
+  - name: sqlrepo
+    layers:
+      - { name: pool,     may_import: [errors] }       # same name, different rule
+
 # Rules: string shorthand or object form
 rules:
   naming/file-naming: warn            # shorthand

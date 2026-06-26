@@ -34,11 +34,13 @@ type LayerConfig struct {
 	MayImport []string `yaml:"may_import,omitempty"`
 }
 
-// ComponentConfig defines a component with optional per-component rule overrides.
+// ComponentConfig defines a component with optional per-component rule overrides
+// and component-scoped layer definitions.
 type ComponentConfig struct {
-	Name  string                `yaml:"name"`
-	Path  string                `yaml:"path"`
-	Rules map[string]RuleConfig `yaml:"rules,omitempty"`
+	Name   string                `yaml:"name"`
+	Path   string                `yaml:"path"`
+	Rules  map[string]RuleConfig `yaml:"rules,omitempty"`
+	Layers []LayerConfig         `yaml:"layers,omitempty"`
 }
 
 // LocationConfig configures the location strategy.
@@ -152,9 +154,44 @@ func (c *Config) LayerMayImport(layerName string) ([]string, bool) {
 	return nil, false
 }
 
-// HasLayers returns true if layers are defined in the config.
+// ComponentLayerMayImport returns the allowed import targets for a layer, checking
+// the component's own layers first (component-scoped), then falling back to the
+// global layers. The third return value reports whether the match was
+// component-scoped, so callers can restrict the rule to same-component imports.
+func (c *Config) ComponentLayerMayImport(component, layerName string) (allowed []string, found, scoped bool) {
+	if component != "" {
+		for _, comp := range c.Components {
+			if comp.Name != component {
+				continue
+			}
+			for _, l := range comp.Layers {
+				if l.Name == layerName {
+					return l.MayImport, true, true
+				}
+				for _, a := range l.Aliases {
+					if a == layerName {
+						return l.MayImport, true, true
+					}
+				}
+			}
+		}
+	}
+	allowed, found = c.LayerMayImport(layerName)
+	return allowed, found, false
+}
+
+// HasLayers returns true if layers are defined in the config, either globally or
+// within any component.
 func (c *Config) HasLayers() bool {
-	return len(c.Layers) > 0
+	if len(c.Layers) > 0 {
+		return true
+	}
+	for _, comp := range c.Components {
+		if len(comp.Layers) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // HasComponents returns true if components are defined in the config.

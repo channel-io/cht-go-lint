@@ -368,6 +368,71 @@ func TestPresetMerge(t *testing.T) {
 	}
 }
 
+func TestComponentScopedLayers(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// kafka: contract (leaf), pool (-> contract), publish (-> contract only, NOT pool).
+	writeGoFile(t, dir, "pkg/kafka/contract/c.go", "package contract\n\ntype Engine interface{}\n")
+	writeGoFile(t, dir, "pkg/kafka/pool/p.go", `package pool
+
+import "example.com/test/pkg/kafka/contract"
+
+type Pool struct{ _ contract.Engine }
+`)
+	// publish imports kafka/pool (violation) and sqlrepo/pool (cross-component, must be skipped).
+	writeGoFile(t, dir, "pkg/kafka/publish/pub.go", `package publish
+
+import (
+	"example.com/test/pkg/kafka/pool"
+	sqlpool "example.com/test/pkg/sqlrepo/pool"
+)
+
+type Publisher struct {
+	_ pool.Pool
+	_ sqlpool.Pool
+}
+`)
+	// sqlrepo: same layer name "pool" with a different rule. Must not interfere with kafka.
+	writeGoFile(t, dir, "pkg/sqlrepo/pool/p.go", "package pool\n\ntype Pool struct{}\n")
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Location: &lint.LocationConfig{
+			Strategy: "flat-pkg",
+			Options:  map[string]any{"roots": []any{"pkg"}},
+		},
+		Components: []lint.ComponentConfig{
+			{
+				Name: "kafka",
+				Layers: []lint.LayerConfig{
+					{Name: "contract", MayImport: []string{}},
+					{Name: "pool", MayImport: []string{"contract"}},
+					{Name: "publish", MayImport: []string{"contract"}},
+				},
+			},
+			{
+				Name: "sqlrepo",
+				Layers: []lint.LayerConfig{
+					{Name: "pool", MayImport: []string{"errors"}},
+				},
+			},
+		},
+		Rules: map[string]lint.RuleConfig{
+			"dependency/layer-direction": {Severity: lint.Error},
+		},
+	}
+
+	report := lint.Check(cfg)
+	// Exactly one violation: kafka/publish -> kafka/pool (pool not in publish's may_import).
+	// kafka/pool -> kafka/contract is allowed; the cross-component sqlrepo/pool import is
+	// skipped (module-isolation's concern); sqlrepo's own "pool" rule is independent.
+	if report.ErrorCount() != 1 {
+		t.Errorf("expected 1 error (publish->pool), got %d:\n%s", report.ErrorCount(), report.String())
+	}
+}
+
 func writeGoFile(t *testing.T, dir, relPath, content string) {
 	t.Helper()
 	full := filepath.Join(dir, relPath)

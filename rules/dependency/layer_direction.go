@@ -34,7 +34,8 @@ func (r *LayerDirection) Check(ctx *lint.Context) error {
 			return nil
 		}
 
-		allowed, ok := ctx.Config.LayerMayImport(sourceLayer)
+		sourceComp := file.Location.Component
+		allowed, ok, scoped := ctx.Config.ComponentLayerMayImport(sourceComp, sourceLayer)
 		if !ok {
 			return nil
 		}
@@ -46,6 +47,12 @@ func (r *LayerDirection) Check(ctx *lint.Context) error {
 
 			iloc := ctx.Analyzer.ImportLocation(imp.Path)
 			if iloc.Layer == "" || iloc.Layer == sourceLayer {
+				continue
+			}
+
+			// Component-scoped layers only govern imports within the same component;
+			// cross-component imports are the concern of module-isolation.
+			if scoped && iloc.Component != sourceComp {
 				continue
 			}
 
