@@ -1,5 +1,7 @@
 # RFC: Recursive Location Model
 
+> A temporary Korean translation lives at [`.ko.md`](./2026-06-29-recursive-location-model.ko.md).
+
 - **Status:** Draft
 - **Created:** 2026-06-29
 - **Target:** cht-go-lint
