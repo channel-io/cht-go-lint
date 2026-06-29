@@ -51,7 +51,7 @@
 
 | 분류 | 항목 |
 |---|---|
-| **신규** | 노드트리 location 전략; 노드 체인 `Location`; 노드 스키마(`nodes`/`may_import`/`shared`); 통합 `dependency/import` 룰. |
+| **신규** | 노드트리 location 전략; 노드 체인 `Location`; 노드 스키마(`children`/`may_import`/`shared`); 통합 `dependency/import` 룰. |
 | **통합** | `module-isolation` + `layer-direction` + `cross-boundary` + `subdomain-isolation` → 단일 `dependency/import` (4 → 1). |
 | **삭제** | 노드별 `public` 표면, 별도 `foundations` 목록, `isolate` 플래그 — 가시성은 Go `internal/`, broadcast는 `shared`로 대체. |
 | **재매핑** | `naming/*`, `structure/*`, `iface/*`, `ddd/*`가 `Component`/`Layer` 대신 노드 체인을 읽음. 새 룰 아님. |
@@ -70,6 +70,36 @@ additive로 배포되는 모델 오버홀이지 단일 새 룰이 아니다. dep
 - **tier 게이트**가 전제 config 없는 룰을 skip.
 - 파싱은 AST만, 파일당 캐시.
 
+## 용어
+
+**트리**
+
+- **node(노드)** — 격리 단위인 디렉토리. 부모가 *expanded*면 노드가 된다.
+- **root** — 최상위 노드; 항상 노드.
+- **parent/child/sibling** — 트리 중첩; sibling은 같은 parent를 공유.
+- **ancestor/descendant/subtree** — 체인 위/아래; subtree는 한 노드 + 모든 자손.
+- **expanded 노드** — 자기 config가 직속 하위 디렉토리를 자식 노드로 벽 치는 노드.
+- **leaf(잎)** — 자식 없는 노드; 그 하위 디렉토리는 자기 코드지 노드 아님. (잎도
+  노드다.)
+- **chain(체인)** — 파일의 `Location`: root부터 파일 소유 노드까지, 예 `[root,
+  kafka, consumer]`.
+
+**그래프**
+
+- **import** — 코드의 실제 Go `import`.
+- **edge(엣지)** — 두 노드 사이 *선언된 허용* import 관계. 기본은 엣지 없음(deny);
+  린트가 import마다 엣지에 대조.
+- **`may_import`** — importer쪽 선언 유향 엣지 (`A may_import B` = 엣지 `A → B`).
+- **`shared`** — broadcast 엣지: `B shared`면 `B`의 형제들(+그 서브트리) → `B` 엣지
+  열림.
+- **wall(벽)** — 형제 노드 간 기본 deny; 엣지는 벽의 구멍.
+
+**정책**
+
+- **deny-default** — 형제 노드는 엣지 없으면 막힘.
+- **divergence(갈라짐)** — 두 체인이 갈리는 레벨; import 체크가 일어나는 형제 레벨.
+- **visibility** — Go `internal/` + 대문자/소문자. cht 엣지와 별개; 표면은 Go에 위임.
+
 ## 제안 설계
 
 ### 노드 트리
@@ -81,8 +111,16 @@ additive로 배포되는 모델 오버홀이지 단일 새 룰이 아니다. dep
 | `may_import` | 당기기(importer) | 이 노드가 import 가능한 노드들. 명시적·유향 엣지. |
 | `shared` | 밀기(importee) | `true`면, **부모 서브트리** 안의 노드가 나를 import 가능. 공통 의존을 형제마다 적는 대신 한 번에. |
 
-자식은 경로 prefix로 추론. 노드 `path`는 부모 `children`의 키이거나 파일 위치로
-암시(*Config 배치* 참고).
+**무엇이 디렉토리를 노드로 만드나.** 디렉토리는 그 **부모가 expanded**일 때 노드가
+된다 — 부모가 자기 내용을 벽 치는 config(`children` 섹션, inline 또는 co-located)를
+가질 때. expanded 노드의 *직속 하위 디렉토리*는 전부 자식 노드가 되어 서로 기본
+격리된다; config에서 이름 적는 건 그 자식에 정책(`may_import`/`shared`)을 붙이는
+것일 뿐 노드로 *만드는* 게 아니다 — 이름 안 적은 직속 하위도 노드다(그냥
+deny-default, 엣지 없음). 자기 config가 없는 디렉토리는 **leaf**: 그 하위는 자기
+코드지 더 이상 노드 아님. 즉 노드성(형제와 벽)은 **부모의** config가 주고, 자기
+config는 자기 **자식**을 벽 치지 자기 자신을 만들지 않는다. repo 루트는 항상
+expanded. 노드 `path`는 그냥 그 디렉토리(예 `pkg/kafka/consumer`)이고 parent/child는
+경로 prefix로 따라온다.
 
 `shared` 범위는 **위치**가 정한다 — "전역 vs 형제" 설정 없음:
 
@@ -110,8 +148,16 @@ producer`는 `kafka` config(의 `consumer` 키 아래)에 선언되고, 분리�
 3. `T`가 `shared`이고 `S`가 `T`의 부모 서브트리 안 — importee가 broadcast.
 
 아니면 위반. `isolate` 플래그 불필요 — deny가 기본이고, `may_import`/`shared`가
-엣지를 여는 법. 모든 cross-node import는 `S`와 `T`가 트리에서 *갈라지는 지점*의
-형제 체크로 환원되므로, 같은 룰이 `kafka ⊥ sqlrepo`(root 형제)와 `consumer ⊥
+엣지를 여는 법.
+
+**벽은 수평이다.** *형제*끼리만 벽이다. 수직 parent↔child 관계는 항상 열려
+있다(조건 1): 노드는 자기 서브트리를 자유롭게 쓰고, 자기를 감싸는 기능의 코드도 쓸
+수 있다. 그래서 `kafka`가 자기 `consumer`/`producer` 자식을 orchestrate하거나
+`consumer`가 위로 `kafka`의 공유 타입을 쓰는 건 항상 허용 — 강제되는 건 형제 간
+수평 `consumer ⊥ producer`다. (부모가 자식을 import한다고 자식의 형제를 잇지
+않는다: `kafka`가 `consumer`·`producer` 둘 다 써도 `consumer`가 `producer`를
+import하게 되지 않는다.) 모든 cross-node import는 `S`와 `T`가 *갈라지는 지점*의 형제
+체크로 환원되므로, 같은 룰이 `kafka ⊥ sqlrepo`(root 형제)와 `consumer ⊥
 producer`(kafka 안 형제)를 동일하게 강제한다.
 
 **가시성은 Go의 일이고 cht는 중복하지 않는다.** Go가 이미 `internal/`(서브트리
@@ -126,14 +172,13 @@ producer`(kafka 안 형제)를 동일하게 강제한다.
 
 ### Location 할당
 
-파일 `Location`은 **경로가 파일 경로의 prefix인 선언 노드 체인**, 가장 깊은
-매칭이 소유. 선언 노드 없는 디렉토리는 가장 가까운 선언 조상에 속함. 마커 없음;
-깊이 무제한.
+파일 `Location`은 **경로 위의 노드 체인**, 가장 깊은 노드가 소유. 노드가 아닌
+디렉토리(leaf 아래에 있음)는 위쪽 가장 가까운 노드에 속함. 마커 없음; 깊이 무제한.
 
 ```text
 file:  pkg/kafka/consumer/pool/x.go
-chain: [kafka, kafka/consumer]          # 가장 깊은 선언 prefix = kafka/consumer
-                                        # pool은 미선언 → consumer의 일부
+chain: [kafka, kafka/consumer]          # kafka, consumer가 노드
+                                        # consumer가 leaf → pool은 consumer 코드
 ```
 
 ### Config 배치
@@ -143,10 +188,16 @@ chain: [kafka, kafka/consumer]          # 가장 깊은 선언 prefix = kafka/co
 
 - **루트** `.cht-go-lint.yaml` — 전역 필드(`module`, `rules`, golangci)와 루트
   노드 본문(단순한 경우 inline 노드 선언).
-- **Co-located** 기능 디렉토리 안 `.cht-go-lint.yaml` — 그 디렉토리 노드 본문.
-  경로가 위치로 암시되어 노드 이름 반복 안 함.
+- **Co-located** 기능 디렉토리 안 `.cht-go-lint.yaml` — 그 디렉토리의 *자식*을 배선
+  (경로는 위치로 암시). 형제로의 엣지는 여전히 공통 부모 config에, 여기 아님.
 - **Cascade:** 가까운(co-located) 선언이 같은 노드에 대해 루트를 override. 루트
   vs 노드는 내용으로 구분(루트가 `module:` 가짐).
+- **Top-level roots:** 코드는 보통 `pkg/` 같은 prefix 아래 있다. `roots: [pkg]`
+  옵션(`flat-pkg`에서 이어옴)이 루트 노드의 top-level 기능 자식이 어디서 시작하는지
+  알려, `pkg`가 한 노드가 아니라 `pkg/kafka`·`pkg/sqlrepo`가 루트의 자식이 된다.
+- **Severity override:** 노드 config는 자기 서브트리에 룰 severity를
+  설정(cascade)할 수 있다 — 예: 전역 기본이 `error`인데 레거시 노드만 `warn`. 현
+  도구의 컴포넌트별 severity override와 동일.
 
 **권장:** 작고 중앙 소유 repo(`go-lib`)는 단일 루트 파일; 큰 다팀
 repo(`ch-app-store`)는 기능별 co-locate. 기능 분리는 스케일 탈출구지 기본 아님.
@@ -168,6 +219,9 @@ Java JPMS, Nx 경계에서도 보이는 패턴.
 5. 룰 루프: .go 순회, 트리로 Location 할당, 검사
 6. golangci 통합
 ```
+
+5단계 `.go` 순회는 같은 제외를 적용하고 추가로 `_test.go` 파일을 skip한다(현 엔진과
+동일).
 
 ### 통합 dependency 룰
 
