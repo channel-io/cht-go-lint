@@ -81,12 +81,12 @@ rules shrink (4 → 1); structural change is the substance.
 **Tree**
 
 - **node** — a directory that is an isolation unit. A directory becomes a node
-  when its parent is *expanded*.
+  when its parent is a *walling* node.
 - **root** — the top node; always a node.
 - **parent / child / sibling** — tree nesting; siblings share a parent.
 - **ancestor / descendant / subtree** — up / down a chain; a subtree is a node
   plus all its descendants.
-- **expanded node** — a node whose config walls its direct subdirectories into
+- **walling node** — a node whose config walls its direct subdirectories into
   child nodes.
 - **leaf** — a node with no children; its subdirectories are part of its own
   code, not nodes. (A leaf is still a node.)
@@ -125,17 +125,17 @@ fields:
 | `shared` | push (importee) | If `true`, this node may be imported by any node within its **parent's subtree**. A common dependency, declared once instead of in every sibling's `may_import`. |
 
 **What makes a directory a node.** A directory becomes a node when its **parent
-is expanded** — when the parent has a config (a `children` section, inline or
-co-located) that walls its contents. An expanded node's *direct subdirectories*
+is a walling node** — when the parent has a config (a `children` section, inline
+or co-located) that walls its contents. A walling node's *direct subdirectories*
 are all child nodes, isolated from each other by default; naming one in the
 config only attaches policy (`may_import` / `shared`) to it — it does not create
 it, and unnamed direct subdirectories are nodes too (just deny-default with no
 edges). A directory with no config of its own is a **leaf**: its subdirectories
 are part of its code, not further nodes. So node-ness — being walled from your
 siblings — comes from your **parent's** config; your own config walls your
-**children**, never yourself. The repo root is always expanded. A node's `path`
-is simply its directory (e.g. `pkg/kafka/consumer`), and parent/child follows
-from path prefix.
+**children**, never yourself. The repo root is always a walling node. A node's
+`path` is simply its directory (e.g. `pkg/kafka/consumer`), and parent/child
+follows from path prefix.
 
 `shared` scope follows **position** — there is no separate "global vs sibling"
 setting:

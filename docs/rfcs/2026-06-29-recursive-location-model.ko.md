@@ -74,11 +74,11 @@ additive로 배포되는 모델 오버홀이지 단일 새 룰이 아니다. dep
 
 **트리**
 
-- **node(노드)** — 격리 단위인 디렉토리. 부모가 *expanded*면 노드가 된다.
+- **node(노드)** — 격리 단위인 디렉토리. 부모가 *walling 노드*면 노드가 된다.
 - **root** — 최상위 노드; 항상 노드.
 - **parent/child/sibling** — 트리 중첩; sibling은 같은 parent를 공유.
 - **ancestor/descendant/subtree** — 체인 위/아래; subtree는 한 노드 + 모든 자손.
-- **expanded 노드** — 자기 config가 직속 하위 디렉토리를 자식 노드로 벽 치는 노드.
+- **walling 노드** — 자기 config가 직속 하위 디렉토리를 자식 노드로 벽 치는 노드.
 - **leaf(잎)** — 자식 없는 노드; 그 하위 디렉토리는 자기 코드지 노드 아님. (잎도
   노드다.)
 - **chain(체인)** — 파일의 `Location`: root부터 파일 소유 노드까지, 예 `[root,
@@ -111,15 +111,15 @@ additive로 배포되는 모델 오버홀이지 단일 새 룰이 아니다. dep
 | `may_import` | 당기기(importer) | 이 노드가 import 가능한 노드들. 명시적·유향 엣지. |
 | `shared` | 밀기(importee) | `true`면, **부모 서브트리** 안의 노드가 나를 import 가능. 공통 의존을 형제마다 적는 대신 한 번에. |
 
-**무엇이 디렉토리를 노드로 만드나.** 디렉토리는 그 **부모가 expanded**일 때 노드가
-된다 — 부모가 자기 내용을 벽 치는 config(`children` 섹션, inline 또는 co-located)를
-가질 때. expanded 노드의 *직속 하위 디렉토리*는 전부 자식 노드가 되어 서로 기본
-격리된다; config에서 이름 적는 건 그 자식에 정책(`may_import`/`shared`)을 붙이는
-것일 뿐 노드로 *만드는* 게 아니다 — 이름 안 적은 직속 하위도 노드다(그냥
+**무엇이 디렉토리를 노드로 만드나.** 디렉토리는 그 **부모가 walling 노드**일 때
+노드가 된다 — 부모가 자기 내용을 벽 치는 config(`children` 섹션, inline 또는
+co-located)를 가질 때. walling 노드의 *직속 하위 디렉토리*는 전부 자식 노드가 되어
+서로 기본 격리된다; config에서 이름 적는 건 그 자식에 정책(`may_import`/`shared`)을
+붙이는 것일 뿐 노드로 *만드는* 게 아니다 — 이름 안 적은 직속 하위도 노드다(그냥
 deny-default, 엣지 없음). 자기 config가 없는 디렉토리는 **leaf**: 그 하위는 자기
 코드지 더 이상 노드 아님. 즉 노드성(형제와 벽)은 **부모의** config가 주고, 자기
-config는 자기 **자식**을 벽 치지 자기 자신을 만들지 않는다. repo 루트는 항상
-expanded. 노드 `path`는 그냥 그 디렉토리(예 `pkg/kafka/consumer`)이고 parent/child는
+config는 자기 **자식**을 벽 치지 자기 자신을 만들지 않는다. repo 루트는 항상 walling
+노드. 노드 `path`는 그냥 그 디렉토리(예 `pkg/kafka/consumer`)이고 parent/child는
 경로 prefix로 따라온다.
 
 `shared` 범위는 **위치**가 정한다 — "전역 vs 형제" 설정 없음:
