@@ -1,7 +1,7 @@
 # RFC: Recursive Location Model
 
 - **Status:** Draft
-- **Date:** 2026-06-29
+- **Created:** 2026-06-29
 - **Target:** cht-go-lint
 - **Affects:** location strategies, the `dependency/*` rules, config schema
 
@@ -10,14 +10,19 @@
 Replace the fixed three-axis location model (`Component` / `SubComponent` /
 `Layer`) with a **recursive node tree**. A file's architectural position becomes
 a *chain of nodes* resolved by path-prefix matching, declared in
-`.cht-go-lint.yaml` files that cascade by directory. The four structural
+`.cht-go-lint.yaml` files that cascade by directory.
+
+A node has **two fields** — `may_import` (which nodes it may import) and
+`shared` (whether it may be imported by nodes in its parent's subtree). The
+default is **deny**: sibling nodes are isolated unless an edge is declared.
+Symbol/package visibility is left to Go (`internal/`, exported/unexported); cht
+governs only the import graph that Go leaves open. The four structural
 dependency rules (`module-isolation`, `layer-direction`, `cross-boundary`,
-`subdomain-isolation`) collapse into a single `may_import` + visibility check
-over the tree.
+`subdomain-isolation`) collapse into a single check over the tree.
 
 The change is additive and ships as a new major version. Existing consumers,
 pinned to the current version, are unaffected; `flat-pkg` and `nested-domain`
-remain available as presets that synthesize a node tree.
+remain available as presets.
 
 ## Motivation
 
@@ -29,101 +34,104 @@ a minimal golangci-only config.)
 
 1. **Not recursive.** `Location` has three fixed slots, so depth caps at three.
    A feature that nests deeper — e.g. `kafka` → `consumer` / `producer` → their
-   own internals — cannot be expressed. Even the most structured consumer
-   (`ch-app-store`) stops at `domain / subdomain / layer` and never nests
-   `subdomain` twice.
+   own internals — cannot be expressed. Even `ch-app-store` stops at
+   `domain / subdomain / layer` and never nests `subdomain` twice.
 
-2. **SubComponent is marker-coupled.** `SubComponent` is only assigned when a
-   literal `subdomain/` directory appears in the path. Forcing a `subdomain`
-   marker directory into package paths is unnatural for a library.
+2. **SubComponent is marker-coupled.** It is assigned only when a literal
+   `subdomain/` directory appears in the path. Forcing a marker directory into
+   package paths is unnatural for a library.
 
-3. **Layers are global.** A layer name carries a single rule across every
-   component. `go-lib`'s features are heterogeneous (`kafka` ≠ `sqlrepo` ≠
-   `errors`), so a single global layer vocabulary does not fit — the same name
-   (`pool`) means different things in different features.
+3. **Layers are global.** A layer name carries one rule across every component.
+   `go-lib`'s features are heterogeneous (`kafka` ≠ `sqlrepo` ≠ `errors`), so a
+   single global layer vocabulary does not fit — the same name (`pool`) means
+   different things in different features.
 
-4. **Three rules, one concept.** `module-isolation`, `layer-direction`, and
-   `cross-boundary` all answer the same question — *"may file X import package
-   Y?"* — from the architectural labels of X and Y. They can be one rule.
+4. **Three rules, one concept.** `module-isolation`, `layer-direction`,
+   `cross-boundary` all answer *"may file X import package Y?"* from the
+   architectural labels of X and Y. They can be one rule.
 
 ## Scope of change
 
 | Class | Items |
 |---|---|
-| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`nodes` / `may_import` / `public` / `shared` / `foundations`); the unified `dependency/import` rule. |
-| **Consolidated** | `module-isolation` + `layer-direction` + `cross-boundary` + `subdomain-isolation` → the single `dependency/import` rule (4 → 1). |
-| **Re-mapped** | `naming/*`, `structure/*`, `iface/*`, `ddd/*` adjust to read the node chain instead of `Component` / `Layer`. Not new rules. |
+| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`nodes` / `may_import` / `shared`); the unified `dependency/import` rule. |
+| **Consolidated** | `module-isolation` + `layer-direction` + `cross-boundary` + `subdomain-isolation` → one `dependency/import` rule (4 → 1). |
+| **Dropped** | per-node `public` surface, separate `foundations` list, `isolate` flags — superseded by Go `internal/` for visibility and `shared` for broadcast. |
+| **Re-mapped** | `naming/*`, `structure/*`, `iface/*`, `ddd/*` read the node chain instead of `Component` / `Layer`. Not new rules. |
 | **Kept** | engine (walk / parse / report / golangci), fix phase, parse cache; the tier concept (simplified). |
 
-This is a **model overhaul shipped additively**, not a single new rule. The
-dependency rules shrink (4 → 1); structural change is the substance.
+A model overhaul shipped additively, not a single new rule. The dependency
+rules shrink (4 → 1); structural change is the substance.
 
 ## Background — current model
 
 - `Location{ Component, SubComponent, Layer }` — three single-valued string
   slots assigned by a `LocationStrategy` (`flat-pkg` or `nested-domain`).
 - Each dependency rule walks Go files, assigns a `Location` to each file and to
-  each internal import, and compares the label pairs.
-- A **tier gate** skips a rule whose prerequisite config is absent
-  (`HasLayers()` / `HasComponents()`).
-- Parsing is AST-only (`go/parser`, no type check) and cached per file across
-  all rules.
+  each internal import, and compares the label pairs. Once layers/components are
+  declared and a rule is enabled, it is **deny-by-default** (only declared
+  `may_import` direction is allowed; cross-component internals are denied).
+- A **tier gate** skips a rule whose prerequisite config is absent.
+- Parsing is AST-only and cached per file across all rules.
 
 ## Proposed design
 
 ### Node tree
 
-Architecture is a tree of **nodes**. A node maps to a directory and has three
-knobs, framed by direction:
+Architecture is a tree of **nodes**. A node maps to a directory and has two
+fields:
 
-| Field | Direction | Meaning |
+| Field | Side | Meaning |
 |---|---|---|
-| `may_import` | outgoing | Other nodes this node may import. Explicit, directed edges. |
-| `public` | incoming — *what* | The surface (types / sub-paths) visible across the node boundary. Everything else is internal. |
-| `shared` | incoming — *who* | The node is importable by its sibling nodes under the same parent (an intra-feature foundation). |
+| `may_import` | pull (importer) | Nodes this node may import. Explicit, directed edges. |
+| `shared` | push (importee) | If `true`, this node may be imported by any node within its **parent's subtree**. A common dependency, declared once instead of in every sibling's `may_import`. |
 
-Plus one root-level field:
+Children are inferred by path prefix; a node's `path` is its key under a
+parent's `children`, or implied by the file's location (see *Config
+placement*).
 
-- `foundations` | incoming — *who (all)* | nodes importable by anyone (e.g. `errors`, `log`).
+`shared` scope follows **position** — there is no separate "global vs sibling"
+setting:
 
-Children are inferred by path prefix; a node's `path` is its key (in a parent's
-`children`) or implied by the file's location (see *Config placement*).
+- a `shared` node directly under the repo root is importable everywhere (the
+  old `foundations`, e.g. `errors`);
+- a `shared` node inside `kafka` is importable within `kafka` (the old per-node
+  `shared`, e.g. `kafka/core`).
 
 ### Default policy
 
-Most behaviour is **implicit** — declared config carries only *deviations*
-(allowances), the same way Go treats lowercase as private by default and you
-only mark `exported` names. The baseline, applied without any declaration:
+The default is **deny**: sibling nodes are isolated. An import from node `S` to
+node `T` is allowed iff any of:
 
-1. A node may import its own descendants (its internals).
-2. A node may import `foundations`.
-3. Siblings are isolated (`⊥`) unless connected by `may_import` or `shared`.
-4. Unrelated nodes (different subtrees) are isolated unless `may_import`.
-5. Crossing a node boundary reaches only the target's `public`; everything else
-   stays internal.
-6. Upward import (a node importing an ancestor directly) — policy TBD
-   (see Open Questions).
+1. `T` is within `S`'s own subtree (its descendant or ancestor) — a node sees
+   its own internals;
+2. `T ∈ S.may_import` — the importer declared it;
+3. `T` is `shared` and `S` is within `T`'s parent subtree — the importee
+   broadcast it.
 
-The root may tune the baseline:
+Otherwise it is a violation. No `isolate` flag is needed — deny is the baseline,
+and `may_import` / `shared` are how you open edges. Because every cross-node
+import reduces to a sibling check at the point where `S` and `T` diverge in the
+tree, the same rule enforces `kafka ⊥ sqlrepo` (root-level siblings) and
+`consumer ⊥ producer` (siblings inside `kafka`) uniformly.
 
-```yaml
-defaults:
-  siblings: isolated        # or `open`
-  upward_import: deny
-  public_when_unset: root   # default public surface when `public` is omitted
-```
+**Visibility is Go's job; cht does not duplicate it.** Go already enforces
+`internal/` (a package under `.../internal/...` is unreachable outside its
+subtree), exported/unexported identifiers, acyclic imports, and module
+boundaries. cht adds only the directed import graph Go leaves open (which node
+may import which). A node hides its privates with `internal/`; cht's check runs
+on top of — never instead of — Go's visibility.
 
-**Leverage Go; do not duplicate it.** Go already enforces `internal/`
-(subtree hiding), exported/unexported identifiers, acyclic imports, and module
-boundaries. cht-go-lint adds only what Go leaves open: **which node may import
-which** (isolation + direction) and a **node-level public surface** finer than
-`internal/`. `public` should compose with `internal/`, not re-implement it.
+**Cross-feature exposure** therefore needs no `public` field. To let an outside
+node use `kafka/core`, the outside node declares `may_import: [kafka/core]`;
+Go's `internal/` keeps `kafka`'s privates unreachable regardless of what an
+importer declares.
 
 ### Location assignment
 
 A file's `Location` is the **chain of declared nodes whose paths are prefixes
 of the file's path**, deepest match owning the file. Directories with no
-declared node belong to their nearest declared ancestor. No marker; depth is
+declared node belong to their nearest declared ancestor. No marker; depth
 unbounded.
 
 ```text
@@ -135,57 +143,33 @@ chain: [kafka, kafka/consumer]          # deepest declared prefix = kafka/consum
 ### Config placement
 
 One filename everywhere: **`.cht-go-lint.yaml`**, cascading by directory (like
-`.eslintrc` / `.editorconfig`). No new convention; the tool already recognises
-this name.
+`.eslintrc` / `.editorconfig`). The tool already recognises this name.
 
-- **Root** `.cht-go-lint.yaml` — global fields (`module`, `foundations`,
-  `defaults`, `rules`, golangci settings) plus the root node's body, including
-  inline node declarations for simple cases.
+- **Root** `.cht-go-lint.yaml` — global fields (`module`, `rules`, golangci
+  settings) plus the root node's body, including inline node declarations for
+  simple cases.
 - **Co-located** `.cht-go-lint.yaml` inside a feature directory — that
   directory's node body. Its path is implied by location, so the node name is
   not repeated.
 - **Cascade:** the closer (co-located) declaration overrides the root for the
-  same node.
-- Root vs node is distinguished by content: the root carries `module:`.
+  same node. Root vs node is distinguished by content: the root carries
+  `module:`.
 
 **Recommendation:** small, centrally-owned repos (`go-lib`) keep everything in a
 single root file; large multi-team repos (`ch-app-store`) co-locate per feature.
 Splitting a feature into its own file is the escape valve for scale, not the
-default. (Multiple files all in the repo root is discouraged — files without the
-co-location benefit.)
-
-### Global rules
-
-Rule enablement, severity, and global conventions live in the root `rules:`
-section (unchanged in spirit from today). The node tree supplies *structural
-data* (who may import whom); `rules:` says *which checks run and how strictly*.
-
-```yaml
-# root .cht-go-lint.yaml
-rules:
-  dependency/import: error              # the unified rule's severity
-  structure/forbidden-dirs: error       # no util/common/helper anywhere
-  dependency/forbidden-imports:
-    severity: error
-    options: { patterns: ["**/internal/legacy/**"] }
-```
-
-A node may override severity for its own subtree via cascade (e.g. a legacy
-node at `warn` while the global default is `error`), mirroring today's
-per-component severity override.
+default.
 
 ### Discovery & assembly
 
 A startup phase walks the tree for `.cht-go-lint.yaml` files, merges them with
 root inline nodes, and assembles the node tree by path. Cheap (YAML only, no
 AST), once per run; the tree becomes the location strategy used by every rule.
-This mirrors Bazel loading `BUILD` files before operating — a proven pattern
-also seen in Rust `mod`/`pub`, Java JPMS, and Nx module boundaries.
-
-The discovery walk reuses the analyzer's existing exclusions — the built-in
-skip set (`vendor`, `testdata`, `.git`, `generated`, `node_modules`) and the
-configured `exclude_paths` — so vendored or generated `.cht-go-lint.yaml` files
-never enter the location strategy.
+The walk reuses the analyzer's existing exclusions (the built-in skip set —
+`vendor`, `testdata`, `.git`, `generated`, `node_modules` — and the configured
+`exclude_paths`) so vendored or generated config files never enter the tree.
+This mirrors Bazel loading `BUILD` files before operating — a pattern also seen
+in Rust `mod`/`pub`, Java JPMS, and Nx module boundaries.
 
 ```text
 1. Load root config
@@ -198,82 +182,77 @@ never enter the location strategy.
 
 ### Unified dependency rule
 
-For an internal import, let `S` be the source file's node chain and `T` the
-imported package's node chain. The import is **allowed** iff any of:
-
-- `T ∈ foundations`
-- `T` is within `S`'s own subtree (self or ancestor)
-- `T` is a `shared` sibling under a common ancestor
-- `T ∈ S.may_import`
-
-— **and** the imported symbol/sub-path ∈ `T.public`. Otherwise it is a
-violation. This single check subsumes `module-isolation` (default sibling
-isolation), `layer-direction` (`may_import` direction), `cross-boundary`
-(public surface), and `subdomain-isolation` (sibling isolation at any depth).
+For an internal import, with source node chain `S` and target node chain `T`,
+the import is allowed iff one of the three Default-policy conditions holds
+(own-subtree, `S.may_import`, or in-scope `shared`). This single check subsumes
+`module-isolation` (sibling isolation), `layer-direction` (`may_import`
+direction), `cross-boundary` (Go `internal/` for surface), and
+`subdomain-isolation` (sibling isolation at any depth).
 
 ### Module extraction
 
 Because the filename and node grammar are uniform, a node's
 `.cht-go-lint.yaml` is already nearly a root config. Extracting a feature into
-its own Go module is a **promotion**, not a rewrite:
+its own Go module is a **promotion**, not a rewrite — add `module:`:
 
 ```yaml
 # before — a node inside go-lib (pkg/kafka/.cht-go-lint.yaml)
-public: [Consumer, Producer, Record]
-children: { core: { shared: true }, producer: {...}, consumer: {...} }
+children: { core: { shared: true }, producer: {...}, consumer: { may_import: [producer] } }
 
 # after — its own module root (kafka/.cht-go-lint.yaml)
 module: github.com/channel-io/go-kafka    # the only line added
-public: [Consumer, Producer, Record]
-children: { core: { shared: true }, producer: {...}, consumer: {...} }
+children: { core: { shared: true }, producer: {...}, consumer: { may_import: [producer] } }
 ```
 
-Each module then has its own root `.cht-go-lint.yaml`; cross-module imports
-become external (Go's module system governs them). **Optional span mode:** a
-node may carry its own `go.mod` (a distribution boundary) yet remain in the
-tree, so `may_import` keeps being enforced across the boundary — useful for
-`go-lib`'s `auth` (own module, still part of go-lib's architecture). Span mode
-requires multi-module/workspace analysis (`IsInternalImport` over all repo
-modules) and is an open design item.
+Cross-module imports then become external (Go's module system governs them).
+*Optional span mode* — a node may carry its own `go.mod` yet stay in the tree so
+`may_import` keeps being enforced across the boundary — requires
+multi-module/workspace analysis and is an open item.
 
-## Examples
+## Example
 
-```yaml
-# root .cht-go-lint.yaml
-module: github.com/channel-io/go-lib
-foundations: [errors, log]
-rules:
-  dependency/import: error
-nodes:
-  auth: { public: [Authenticator] }        # simple → inline in root
-  # kafka declared in its own file below
+Directory:
+
+```text
+pkg/
+├── errors/                 # shared at root → importable everywhere
+├── kafka/
+│   ├── .cht-go-lint.yaml    # this dir = the kafka node
+│   ├── kafka.go             # kafka's public API (Go: exported)
+│   ├── core/                # shared within kafka
+│   ├── producer/
+│   ├── consumer/
+│   └── internal/            # Go hides this outside kafka
+└── sqlrepo/
 ```
 
+Config:
+
 ```yaml
-# pkg/kafka/.cht-go-lint.yaml  (co-located; path implied = kafka)
-public: [Consumer, Producer, Record]
+# pkg/kafka/.cht-go-lint.yaml  (path implied = kafka)
 children:
-  core:     { shared: true }
-  producer: { public: [Publisher] }
-  consumer: { public: [Subscriber], may_import: [producer] }
+  core:     { shared: true }                  # consumer/producer may import it
+  producer: {}
+  consumer: { may_import: [producer] }         # consumer → producer (one direction)
 ```
 
-- `kafka/consumer` may import `kafka/producer` — but only `Publisher`.
-- `kafka/producer` may not import `kafka/consumer` (not in `may_import`).
-- Both may import `kafka/core` (`shared`) and `errors` / `log` (`foundations`).
-- Outside `kafka`, only `Consumer` / `Producer` / `Record` are visible.
+- `kafka/consumer` may import `kafka/producer` and `kafka/core`; `kafka/producer`
+  may not import `kafka/consumer`.
+- Both may import `pkg/errors` (shared at root).
+- `kafka ⊥ sqlrepo` by default; if `sqlrepo` needs `kafka/core`, it declares
+  `may_import: [kafka/core]`, and Go's `internal/` still shields `kafka`'s
+  privates.
 
 ## Rule re-mapping (the 41 rules)
 
 - **`dependency/*`:** `module-isolation` + `layer-direction` + `cross-boundary`
   + `subdomain-isolation` → the single import rule. `forbidden-imports`,
-  `infra-in-core`, `handler-*`, `*-service-*` either express as `may_import`
+  `infra-in-core`, `handler-*`, `*-service-*` express as `may_import`
   constraints or remain as path/option rules.
-- **`naming/*`, `structure/*`, `iface/*`, `ddd/*`:** most reference the
-  `Component` / `Layer` labels. They re-express against the node chain (deepest
-  node ≈ today's component; node role ≈ today's layer). Largely mechanical; the
-  exact mapping is an open item.
-- **Tier gate:** with components and layers unified into nodes, the
+- **`naming/*`, `structure/*`, `iface/*`, `ddd/*`:** re-express against the node
+  chain (deepest node ≈ today's component). Largely mechanical; exact mapping is
+  an open item.
+- **Tier gate:** components and layers unify into nodes, so the
   layer-aware / component-aware distinction collapses into a single "has nodes"
   gate. To revisit during implementation.
 
@@ -284,35 +263,38 @@ children:
 - **Version pinning is the safety net.** Consumers install a pinned version
   (`go install …@vX`). Shipping the node model as a new major (`v1`) leaves
   every current consumer on their pinned version untouched; they opt in by
-  bumping. No forced migration.
+  bumping.
+- **Adoption stays gradual** the same way it does today: arch severities start
+  at `warn` and tighten to `error` as a jungle is cleaned up.
 
 ## Alternatives considered
 
-- **A — single recursive node (`may_import` + `public`).** Chosen as the core:
-  it collapses the dependency rules and has prior art (Bazel visibility/deps,
-  Rust `mod`/`pub`, ML modules, Nx boundaries).
-- **B — two primitives (`module` / `layer`).** Kept as optional *labels/sugar*
-  on top of A. More readable, but not the primitive.
-- **C — edge graph over path globs.** Rejected: declaring allow/deny edges
-  loses the readable, semantic architecture and reduces cht-go-lint to an
-  enriched `depguard`.
-- **D — incremental within the three-axis model** (per-component layers +
-  path-based component). Rejected: does not fix recursion or the marker, and
-  remains depth-capped. (An initial component-scoped-layers PR was closed in
-  favour of this RFC.)
-- **Config placement — centralized vs distributed.** Support both via the
-  cascade; default by repo scale rather than mandating one.
+- **Open-by-default + `isolate` flag.** Considered: siblings open like Go,
+  opt into strictness per node. Rejected in favour of **deny-by-default**
+  (the current tool's direction): `may_import` only has teeth against a deny
+  baseline, and deny-default keeps enforcement on by default rather than
+  opt-in. Gradual adoption is handled by `warn` severity instead.
+- **Per-node `public` surface.** Dropped — Go's `internal/` + exported
+  identifiers already define a node's surface; a `public` list would duplicate
+  Go. Cross-feature use is expressed by the importer's `may_import`.
+- **`foundations` list / `visible_to: all` scope.** Dropped — a `shared` node at
+  the repo root already reaches everywhere; position is the scope.
+- **Two primitives (`module` / `layer`).** Optional labels/sugar on top of the
+  node model; not the primitive.
+- **Edge graph over path globs.** Rejected — loses the readable, semantic
+  architecture and reduces cht-go-lint to an enriched `depguard`.
+- **Incremental within the three-axis model.** Rejected — does not fix recursion
+  or the marker. (An initial component-scoped-layers PR was closed for this RFC.)
 
 ## Open questions
 
-1. Upward-import policy (default-deny vs allow) and other `defaults` values.
-2. `may_import` reference syntax — relative (`../producer`) vs rooted
+1. `may_import` reference syntax — relative (`../producer`) vs rooted
    (`kafka/producer`).
+2. Whether `shared` should be a bare boolean or carry an explicit reach when
+   position is not enough (kept boolean for now).
 3. Exact re-mapping of `naming/*`, `structure/*`, `iface/*`, `ddd/*`.
-4. `public` granularity — exported symbols vs sub-paths; how it composes with
-   `internal/`.
-5. Span mode — multi-module/workspace analysis for cross-`go.mod` enforcement.
-6. Migration tooling — generate a node tree from an existing `flat-pkg` /
+4. Span mode — multi-module/workspace analysis for cross-`go.mod` enforcement.
+5. Migration tooling — generate a node tree from an existing `flat-pkg` /
    `nested-domain` config.
 
 ## Migration plan
