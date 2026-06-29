@@ -80,14 +80,15 @@ rules shrink (4 → 1); structural change is the substance.
 
 **Tree**
 
-- **node** — a directory that is an isolation unit. A directory becomes a node
-  when its parent is a *walling* node.
+- **node** — a directory that participates as a unit: either walled by its parent
+  (a *walling* parent) or itself a *walling node*.
 - **root** — the top node; always a node.
 - **parent / child / sibling** — tree nesting; siblings share a parent.
 - **ancestor / descendant / subtree** — up / down a chain; a subtree is a node
   plus all its descendants.
-- **walling node** — a node whose config walls its direct subdirectories into
-  child nodes.
+- **walling node** — a directory with a config; it walls its direct
+  subdirectories into child nodes. Local — independent of whether it is itself
+  walled.
 - **leaf** — a node with no children; its subdirectories are part of its own
   code, not nodes. (A leaf is still a node.)
 - **chain** — a file's `Location`: the nodes from root down to the node owning
@@ -124,18 +125,22 @@ fields:
 | `may_import` | pull (importer) | Nodes this node may import. Explicit, directed edges. |
 | `shared` | push (importee) | If `true`, this node may be imported by any node within its **parent's subtree**. A common dependency, declared once instead of in every sibling's `may_import`. |
 
-**What makes a directory a node.** A directory becomes a node when its **parent
-is a walling node** — when the parent has a config (a `children` section, inline
-or co-located) that walls its contents. A walling node's *direct subdirectories*
-are all child nodes, isolated from each other by default; naming one in the
-config only attaches policy (`may_import` / `shared`) to it — it does not create
-it, and unnamed direct subdirectories are nodes too (just deny-default with no
-edges). A directory with no config of its own is a **leaf**: its subdirectories
-are part of its code, not further nodes. So node-ness — being walled from your
-siblings — comes from your **parent's** config; your own config walls your
-**children**, never yourself. The repo root is always a walling node. A node's
-`path` is simply its directory (e.g. `pkg/kafka/consumer`), and parent/child
-follows from path prefix.
+**What makes a directory a node.** Two separate things, often conflated:
+
+- A directory **walls its children** — is a *walling node* — when it has a config
+  (a `children` section, inline or co-located). This is **local**: its direct
+  subdirectories become child nodes, isolated from each other by default. Adding a
+  config to `kafka/consumer/pool` makes `pool` a walling node over its own
+  subtree; it does *not* promote `consumer`. The repo root is always a walling
+  node.
+- A directory is **walled from its siblings** only when its *parent* is a walling
+  node. So whether `consumer` is isolated from its siblings is `kafka`'s call, not
+  `consumer`'s — node-hood at your level comes from your **parent's** config.
+
+A directory with no config whose parent is a leaf is just code. Naming a child in
+a config only attaches policy (`may_import` / `shared`); unnamed direct
+subdirectories are nodes too (deny-default, no edges). A node's `path` is simply
+its directory (e.g. `pkg/kafka/consumer`); parent/child follows from path prefix.
 
 `shared` scope follows **position** — there is no separate "global vs sibling"
 setting:
@@ -168,9 +173,10 @@ file in node `S` to a package in node `T`.
 - **Horizontal is checked at the divergence.** Otherwise `S` and `T` split at
   some level: let `Sc` and `Tc` be the sibling nodes that are the children of
   their lowest common ancestor. The import is allowed iff
-  - `Sc.may_import` lists a node that covers the target — `Tc` itself, or a node
-    inside it such as `kafka/core` — declared in the common parent; or
-  - the target node is `shared` and `Sc` lies in its parent's subtree.
+  - `Tc ∈ Sc.may_import` — the sibling edge `Sc → Tc`, declared in the common
+    parent. Entries name **siblings only**; how much of `Tc` is then reachable is
+    Go's `internal/` decision, not a deeper `may_import` path. Or
+  - `Tc` is `shared` and `Sc` lies in its parent's subtree.
 
   Otherwise it is a violation.
 
@@ -218,9 +224,14 @@ One filename everywhere: **`.cht-go-lint.yaml`**, cascading by directory (like
 - **Co-located** `.cht-go-lint.yaml` inside a feature directory — wires that
   directory's *children* (its path is implied by location). A node's edge to a
   sibling still lives in the common parent's config, never here.
-- **Cascade:** the closer (co-located) declaration overrides the root for the
-  same node. Root vs node is distinguished by content: the root carries
-  `module:`.
+- **One site per node:** a node is declared in exactly one place — inline in an
+  ancestor's config *or* its own co-located file, never both. Declaring the same
+  node twice is an error, so there is no merge or precedence to reason about.
+  (Root vs node is distinguished by content: the root carries `module:`.)
+- **Global rules:** rule on/off and severity (naming, `forbidden-dirs`, …) live
+  in the root `rules:` section, repo-wide. A global *import reach* is just a
+  `shared` node at the root (e.g. `errors`) — no separate "global" concept is
+  needed beyond these.
 - **Top-level roots:** code usually lives under a prefix like `pkg/`. A
   `roots: [pkg]` option (carried from `flat-pkg`) tells the root node where its
   top-level feature children begin, so `pkg/kafka` and `pkg/sqlrepo` are the
@@ -282,10 +293,12 @@ module: github.com/channel-io/go-kafka    # the only line added
 children: { core: { shared: true }, producer: {...}, consumer: { may_import: [producer] } }
 ```
 
-Cross-module imports then become external (Go's module system governs them).
-*Optional span mode* — a node may carry its own `go.mod` yet stay in the tree so
-`may_import` keeps being enforced across the boundary — requires
-multi-module/workspace analysis and is an open item.
+Each module is analysed on its own — its own `.cht-go-lint.yaml`, its own tree,
+its own run (`go-lib` already has a main module plus an `auth` module).
+Cross-module imports are external and governed by Go's module system; **cht does
+not span module boundaries.** (A "span mode" that kept an extracted node in the
+tree to enforce `may_import` across the boundary would need multi-module analysis;
+out of scope for v1.)
 
 ## Example
 
@@ -317,9 +330,10 @@ children:
 - `kafka/consumer` may import `kafka/producer` and `kafka/core`; `kafka/producer`
   may not import `kafka/consumer`.
 - Both may import `pkg/errors` (shared at root).
-- `kafka ⊥ sqlrepo` by default; if `sqlrepo` needs `kafka/core`, the **root**
-  config (their common parent) declares `sqlrepo: { may_import: [kafka/core] }`,
-  and Go's `internal/` still shields `kafka`'s privates.
+- `kafka ⊥ sqlrepo` by default; if `sqlrepo` needs `kafka`, the **root** config
+  (their common parent) declares `sqlrepo: { may_import: [kafka] }` — `may_import`
+  names siblings, so it grants `kafka` as a whole, and Go's `internal/` decides
+  how much is actually reachable (here only the non-internal `core`).
 
 ## Rule re-mapping (the 41 rules)
 
@@ -327,9 +341,12 @@ children:
   + `subdomain-isolation` → the single import rule. `forbidden-imports`,
   `infra-in-core`, `handler-*`, `*-service-*` express as `may_import`
   constraints or remain as path/option rules.
-- **`naming/*`, `structure/*`, `iface/*`, `ddd/*`:** re-express against the node
-  chain (deepest node ≈ today's component). Largely mechanical; exact mapping is
-  an open item.
+- **`naming/*`, `structure/*`, `iface/*`, `ddd/*`:** the principle — `dependency/*`
+  becomes the one import rule, `naming/*` is delegated to golangci (revive), and
+  the service-shaped `structure/*` / `iface/*` / `ddd/*` rules live only in the
+  service presets (off for a library like `go-lib`). The exact per-rule mapping
+  onto the node chain (deepest node ≈ today's component) is mechanical and settled
+  during implementation, not a design question.
 - **Tier gate:** components and layers unify into nodes, so the
   layer-aware / component-aware distinction collapses into a single "has nodes"
   gate. To revisit during implementation.
@@ -364,16 +381,12 @@ children:
 - **Incremental within the three-axis model.** Rejected — does not fix recursion
   or the marker. (An initial component-scoped-layers PR was closed for this RFC.)
 
-## Open questions
+## Deferred
 
-1. `may_import` reference syntax — relative (`../producer`) vs rooted
-   (`kafka/producer`).
-2. Whether `shared` should be a bare boolean or carry an explicit reach when
-   position is not enough (kept boolean for now).
-3. Exact re-mapping of `naming/*`, `structure/*`, `iface/*`, `ddd/*`.
-4. Span mode — multi-module/workspace analysis for cross-`go.mod` enforcement.
-5. Migration tooling — generate a node tree from an existing `flat-pkg` /
-   `nested-domain` config.
+- **Migration tooling.** Existing repos keep working through the `flat-pkg` /
+  `nested-domain` presets, so no converter is needed to adopt. Whether to ship one
+  that rewrites an old config into an explicit node tree is left open — decide
+  after going through a manual migration once.
 
 ## Migration plan
 
