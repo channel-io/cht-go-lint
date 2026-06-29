@@ -74,11 +74,13 @@ additive로 배포되는 모델 오버홀이지 단일 새 룰이 아니다. dep
 
 **트리**
 
-- **node(노드)** — 격리 단위인 디렉토리. 부모가 *walling 노드*면 노드가 된다.
+- **node(노드)** — 유닛으로 참여하는 디렉토리: 부모(*walling* 부모)가 벽 쳐주거나,
+  자기가 *walling 노드*이거나.
 - **root** — 최상위 노드; 항상 노드.
 - **parent/child/sibling** — 트리 중첩; sibling은 같은 parent를 공유.
 - **ancestor/descendant/subtree** — 체인 위/아래; subtree는 한 노드 + 모든 자손.
-- **walling 노드** — 자기 config가 직속 하위 디렉토리를 자식 노드로 벽 치는 노드.
+- **walling 노드** — config를 가진 디렉토리; 직속 하위를 자식 노드로 벽 친다. 로컬 —
+  자기가 walled인지와 무관.
 - **leaf(잎)** — 자식 없는 노드; 그 하위 디렉토리는 자기 코드지 노드 아님. (잎도
   노드다.)
 - **chain(체인)** — 파일의 `Location`: root부터 파일 소유 노드까지, 예 `[root,
@@ -111,16 +113,21 @@ additive로 배포되는 모델 오버홀이지 단일 새 룰이 아니다. dep
 | `may_import` | 당기기(importer) | 이 노드가 import 가능한 노드들. 명시적·유향 엣지. |
 | `shared` | 밀기(importee) | `true`면, **부모 서브트리** 안의 노드가 나를 import 가능. 공통 의존을 형제마다 적는 대신 한 번에. |
 
-**무엇이 디렉토리를 노드로 만드나.** 디렉토리는 그 **부모가 walling 노드**일 때
-노드가 된다 — 부모가 자기 내용을 벽 치는 config(`children` 섹션, inline 또는
-co-located)를 가질 때. walling 노드의 *직속 하위 디렉토리*는 전부 자식 노드가 되어
-서로 기본 격리된다; config에서 이름 적는 건 그 자식에 정책(`may_import`/`shared`)을
-붙이는 것일 뿐 노드로 *만드는* 게 아니다 — 이름 안 적은 직속 하위도 노드다(그냥
-deny-default, 엣지 없음). 자기 config가 없는 디렉토리는 **leaf**: 그 하위는 자기
-코드지 더 이상 노드 아님. 즉 노드성(형제와 벽)은 **부모의** config가 주고, 자기
-config는 자기 **자식**을 벽 치지 자기 자신을 만들지 않는다. repo 루트는 항상 walling
-노드. 노드 `path`는 그냥 그 디렉토리(예 `pkg/kafka/consumer`)이고 parent/child는
-경로 prefix로 따라온다.
+**무엇이 디렉토리를 노드로 만드나.** 자주 뭉뚱그려지는 두 가지를 분리한다:
+
+- 디렉토리가 **자기 자식을 벽 친다** — *walling 노드*가 된다 — 는 건 config(
+  `children` 섹션, inline 또는 co-located)를 가질 때다. 이건 **로컬**: 직속 하위가
+  자식 노드가 되어 서로 기본 격리된다. `kafka/consumer/pool`에 config를 추가하면
+  `pool`이 자기 서브트리의 walling 노드가 되지, `consumer`를 *승격시키지 않는다*.
+  repo 루트는 항상 walling 노드.
+- 디렉토리가 **형제와 격리(walled)**되는 건 그 *부모*가 walling 노드일 때뿐이다.
+  그래서 `consumer`가 형제와 격리되는지는 `consumer`가 아니라 `kafka`의 몫 — 자기
+  레벨의 노드성은 **부모의** config가 준다.
+
+config 없고 부모가 leaf인 디렉토리는 그냥 코드다. config에서 이름 적는 건 정책
+(`may_import`/`shared`)을 붙일 뿐; 이름 안 적은 직속 하위도 노드다(deny-default, 엣지
+없음). 노드 `path`는 그냥 그 디렉토리(예 `pkg/kafka/consumer`)이고 parent/child는 경로
+prefix로 따라온다.
 
 `shared` 범위는 **위치**가 정한다 — "전역 vs 형제" 설정 없음:
 
@@ -149,9 +156,10 @@ producer`는 `kafka` config(의 `consumer` 키 아래)에 선언되고, 분리�
   건 항상 OK.
 - **수평은 갈라지는 지점에서 체크.** 아니면 `S`와 `T`는 어느 레벨에서 갈린다: `Sc`,
   `Tc`를 그 *최저 공통 조상*의 자식인 형제 노드라 하자. 다음이면 허용:
-  - `Sc.may_import`가 대상을 덮는 노드를 나열 — `Tc` 자체, 또는 그 안의 노드(예
-    `kafka/core`) — 공통 부모에 선언; 또는
-  - 대상 노드가 `shared`이고 `Sc`가 그 부모 서브트리 안.
+  - `Tc ∈ Sc.may_import` — 공통 부모에 선언된 형제 엣지 `Sc → Tc`. 항목은 *형제만*
+    이름 적는다; `Tc`의 *얼마나*가 닿는지는 더 깊은 `may_import` 경로가 아니라 Go
+    `internal/`이 정한다. 또는
+  - `Tc`가 `shared`이고 `Sc`가 그 부모 서브트리 안.
 
   아니면 위반.
 
@@ -193,8 +201,12 @@ chain: [kafka, kafka/consumer]          # kafka, consumer가 노드
   노드 본문(단순한 경우 inline 노드 선언).
 - **Co-located** 기능 디렉토리 안 `.cht-go-lint.yaml` — 그 디렉토리의 *자식*을 배선
   (경로는 위치로 암시). 형제로의 엣지는 여전히 공통 부모 config에, 여기 아님.
-- **Cascade:** 가까운(co-located) 선언이 같은 노드에 대해 루트를 override. 루트
-  vs 노드는 내용으로 구분(루트가 `module:` 가짐).
+- **노드당 한 곳:** 노드는 *정확히 한 곳*에 선언된다 — 조상 config에 inline *또는*
+  자기 co-located 파일, 둘 다 아님. 같은 노드를 두 번 선언하면 에러라, merge/우선순위
+  고민이 없다. (루트 vs 노드는 내용으로 구분 — 루트가 `module:` 가짐.)
+- **전역 룰:** 룰 on/off·severity(naming, `forbidden-dirs` 등)는 루트 `rules:`
+  섹션에, repo 전역. 전역 *import 도달*은 루트의 `shared` 노드(예 `errors`)면 됨 —
+  그 외 별도 "전역" 개념 불필요.
 - **Top-level roots:** 코드는 보통 `pkg/` 같은 prefix 아래 있다. `roots: [pkg]`
   옵션(`flat-pkg`에서 이어옴)이 루트 노드의 top-level 기능 자식이 어디서 시작하는지
   알려, `pkg`가 한 노드가 아니라 `pkg/kafka`·`pkg/sqlrepo`가 루트의 자식이 된다.
@@ -248,9 +260,10 @@ module: github.com/channel-io/go-kafka    # 추가된 유일한 줄
 children: { core: { shared: true }, producer: {...}, consumer: { may_import: [producer] } }
 ```
 
-모듈 간 import는 external이 됨(Go 모듈 시스템 관장). *선택적 span 모드* — 노드가
-자기 `go.mod`를 가지면서 트리에 남아 `may_import`이 경계 너머로 강제 — 은
-다중모듈/워크스페이스 분석이 필요하며 열린 항목.
+각 모듈은 *각자* 분석된다 — 자기 `.cht-go-lint.yaml`, 자기 트리, 자기 run(`go-lib`은
+이미 메인 모듈 + `auth` 모듈). 모듈 간 import는 external이고 Go 모듈 시스템이
+관장한다; **cht는 모듈 경계를 넘지 않는다.** (추출된 노드를 트리에 남겨 경계 너머
+`may_import`을 강제하는 "span 모드"는 다중모듈 분석이 필요 — v1 범위 밖.)
 
 ## 예시
 
@@ -282,17 +295,21 @@ children:
 - `kafka/consumer`는 `kafka/producer`와 `kafka/core`를 import 가능;
   `kafka/producer`는 `kafka/consumer` 불가.
 - 둘 다 `pkg/errors` import 가능(root에서 shared).
-- `kafka ⊥ sqlrepo` 기본; `sqlrepo`가 `kafka/core` 필요하면 **루트** config(둘의
-  공통 부모)가 `sqlrepo: { may_import: [kafka/core] }` 선언, Go `internal/`은
-  여전히 `kafka` privates 보호.
+- `kafka ⊥ sqlrepo` 기본; `sqlrepo`가 `kafka`를 쓰려면 **루트** config(둘의 공통
+  부모)가 `sqlrepo: { may_import: [kafka] }` 선언 — `may_import`은 *형제* 이름이라
+  `kafka` 통째 허용이고, 실제 얼마나 닿는지는 Go `internal/`이 정한다(여기선
+  비-internal `core`만).
 
 ## 룰 재매핑 (41개)
 
 - **`dependency/*`:** `module-isolation` + `layer-direction` + `cross-boundary`
   + `subdomain-isolation` → 단일 import 룰. `forbidden-imports`, `infra-in-core`,
   `handler-*`, `*-service-*`는 `may_import` 제약 or 경로/옵션 룰로.
-- **`naming/*`, `structure/*`, `iface/*`, `ddd/*`:** 노드 체인 기준 재표현(가장
-  깊은 노드 ≈ 오늘날 컴포넌트). 대체로 기계적; 정확한 매핑은 열린 항목.
+- **`naming/*`, `structure/*`, `iface/*`, `ddd/*`:** 원칙 — `dependency/*`는 단일
+  import 룰이 되고, `naming/*`은 golangci(revive)에 위임, 서비스형
+  `structure/*`/`iface/*`/`ddd/*`는 서비스 프리셋에만(go-lib 같은 라이브러리는 off).
+  노드 체인으로의 룰별 정확한 매핑(가장 깊은 노드 ≈ 오늘날 컴포넌트)은 기계적이고
+  *구현 단계*에서 정한다 — 설계 질문 아님.
 - **tier 게이트:** 컴포넌트·레이어가 노드로 통합되어 layer-aware/component-aware
   구분이 "노드 있나" 단일 게이트로 붕괴. 구현 시 재검토.
 
@@ -322,13 +339,11 @@ children:
 - **3축 모델 내 점진.** 기각 — 재귀·마커 미해결. (초기 component-scoped-layers PR은
   이 RFC 위해 닫음.)
 
-## 열린 질문
+## 보류
 
-1. `may_import` 참조 문법 — 상대(`../producer`) vs 루트기준(`kafka/producer`).
-2. `shared`를 bare 불린으로 둘지, 위치로 부족할 때 명시 reach를 줄지(현재 불린).
-3. `naming/*`, `structure/*`, `iface/*`, `ddd/*` 정확한 재매핑.
-4. span 모드 — 모듈 간 강제를 위한 다중모듈/워크스페이스 분석.
-5. 마이그레이션 도구 — 기존 `flat-pkg`/`nested-domain`에서 노드 트리 생성.
+- **마이그레이션 도구.** 기존 레포는 `flat-pkg`/`nested-domain` 프리셋으로 그대로
+  돌아가니 채택에 변환기는 불필요. 옛 config를 명시적 노드 트리로 다시 쓰는 도구를
+  낼지는 열어둠 — 수동 마이그레이션 한 번 해보고 결정.
 
 ## 마이그레이션 계획
 
