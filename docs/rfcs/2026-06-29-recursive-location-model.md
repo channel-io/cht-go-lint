@@ -100,6 +100,17 @@ setting:
 - a `shared` node inside `kafka` is importable within `kafka` (the old per-node
   `shared`, e.g. `kafka/core`).
 
+**Edges are declared in the common parent.** `may_import` and `shared` for a set
+of siblings live in the config of their shared parent — the level where they sit
+together — not in a child's own file. `consumer → producer` is declared in
+`kafka`'s config (under the `consumer` key); a split-out
+`kafka/consumer/.cht-go-lint.yaml` declares only `consumer`'s *own* children and
+never references a sibling. This keeps each level's wiring readable in one place
+and follows how architecture linters centralize policy (Nx module boundaries,
+ArchUnit, depguard) rather than how dependency managers scatter deps onto each
+unit (Go imports, Bazel, Maven). The rule semantics are unchanged — `may_import`
+is still node `S`'s outgoing set; only its *declaration site* is the parent.
+
 ### Default policy
 
 The default is **deny**: sibling nodes are isolated. An import from node `S` to
@@ -124,10 +135,10 @@ boundaries. cht adds only the directed import graph Go leaves open (which node
 may import which). A node hides its privates with `internal/`; cht's check runs
 on top of — never instead of — Go's visibility.
 
-**Cross-feature exposure** therefore needs no `public` field. To let an outside
-node use `kafka/core`, the outside node declares `may_import: [kafka/core]`;
-Go's `internal/` keeps `kafka`'s privates unreachable regardless of what an
-importer declares.
+**Cross-feature exposure** therefore needs no `public` field. To let `sqlrepo`
+use `kafka/core`, the root config (their common parent) declares
+`sqlrepo: { may_import: [kafka/core] }`; Go's `internal/` keeps `kafka`'s
+privates unreachable regardless of what is declared.
 
 ### Location assignment
 
@@ -241,9 +252,9 @@ children:
 - `kafka/consumer` may import `kafka/producer` and `kafka/core`; `kafka/producer`
   may not import `kafka/consumer`.
 - Both may import `pkg/errors` (shared at root).
-- `kafka ⊥ sqlrepo` by default; if `sqlrepo` needs `kafka/core`, it declares
-  `may_import: [kafka/core]`, and Go's `internal/` still shields `kafka`'s
-  privates.
+- `kafka ⊥ sqlrepo` by default; if `sqlrepo` needs `kafka/core`, the **root**
+  config (their common parent) declares `sqlrepo: { may_import: [kafka/core] }`,
+  and Go's `internal/` still shields `kafka`'s privates.
 
 ## Rule re-mapping (the 41 rules)
 

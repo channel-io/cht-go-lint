@@ -91,6 +91,15 @@ additive로 배포되는 모델 오버홀이지 단일 새 룰이 아니다. dep
 - `kafka` 안 `shared` 노드 → `kafka` 안에서 import 가능 (옛 per-node `shared`,
   예 `kafka/core`).
 
+**엣지는 공통 부모가 선언한다.** 한 형제 집합의 `may_import`/`shared`는 그들이
+함께 놓인 *공통 부모* config에 산다 — 자식 자기 파일이 아니라. `consumer →
+producer`는 `kafka` config(의 `consumer` 키 아래)에 선언되고, 분리된
+`kafka/consumer/.cht-go-lint.yaml`은 `consumer`의 *자기* 자식들만 선언하지 형제를
+참조하지 않는다. 이러면 각 레벨 배선이 한 곳에 보이고, 의존 매니저가 deps를 각
+유닛에 흩뿌리는 것(Go import, Bazel, Maven)이 아니라 아키텍처 린터가 정책을
+중앙화하는 방식(Nx 모듈경계, ArchUnit, depguard)을 따른다. 룰 의미는 그대로 —
+`may_import`은 여전히 노드 `S`의 나가는 집합이고, *선언 위치*만 부모다.
+
 ### 기본 정책
 
 기본은 **deny**: 형제 노드는 격리. 노드 `S` → 노드 `T` import는 다음 중 하나면
@@ -110,9 +119,10 @@ producer`(kafka 안 형제)를 동일하게 강제한다.
 열어둔 유향 import 그래프만 더한다. 노드는 privates를 `internal/`로 숨기고, cht
 검사는 Go 가시성 *위에서* 돈다(대체가 아님).
 
-따라서 **cross-feature 노출**에 `public` 필드가 불필요하다. 밖 노드가
-`kafka/core`를 쓰려면 그 노드가 `may_import: [kafka/core]`를 선언한다. Go
-`internal/`이 importer 선언과 무관하게 `kafka` privates를 도달 불가로 지킨다.
+따라서 **cross-feature 노출**에 `public` 필드가 불필요하다. `sqlrepo`가
+`kafka/core`를 쓰려면 루트 config(둘의 공통 부모)가 `sqlrepo: { may_import:
+[kafka/core] }`를 선언한다. Go `internal/`이 무엇을 선언하든 `kafka` privates를
+도달 불가로 지킨다.
 
 ### Location 할당
 
@@ -215,8 +225,9 @@ children:
 - `kafka/consumer`는 `kafka/producer`와 `kafka/core`를 import 가능;
   `kafka/producer`는 `kafka/consumer` 불가.
 - 둘 다 `pkg/errors` import 가능(root에서 shared).
-- `kafka ⊥ sqlrepo` 기본; `sqlrepo`가 `kafka/core` 필요하면 `may_import:
-  [kafka/core]` 선언, Go `internal/`은 여전히 `kafka` privates 보호.
+- `kafka ⊥ sqlrepo` 기본; `sqlrepo`가 `kafka/core` 필요하면 **루트** config(둘의
+  공통 부모)가 `sqlrepo: { may_import: [kafka/core] }` 선언, Go `internal/`은
+  여전히 `kafka` privates 보호.
 
 ## 룰 재매핑 (41개)
 
