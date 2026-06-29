@@ -56,7 +56,7 @@ a minimal golangci-only config.)
 
 | Class | Items |
 |---|---|
-| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`nodes` / `may_import` / `shared`); the unified `dependency/import` rule. |
+| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`children` / `may_import` / `shared`); the unified `dependency/import` rule. |
 | **Consolidated** | `module-isolation` + `layer-direction` + `cross-boundary` + `subdomain-isolation` → one `dependency/import` rule (4 → 1). |
 | **Dropped** | per-node `public` surface, separate `foundations` list, `isolate` flags — superseded by Go `internal/` for visibility and `shared` for broadcast. |
 | **Re-mapped** | `naming/*`, `structure/*`, `iface/*`, `ddd/*` read the node chain instead of `Component` / `Layer`. Not new rules. |
@@ -88,9 +88,18 @@ fields:
 | `may_import` | pull (importer) | Nodes this node may import. Explicit, directed edges. |
 | `shared` | push (importee) | If `true`, this node may be imported by any node within its **parent's subtree**. A common dependency, declared once instead of in every sibling's `may_import`. |
 
-Children are inferred by path prefix; a node's `path` is its key under a
-parent's `children`, or implied by the file's location (see *Config
-placement*).
+**What makes a directory a node.** A directory becomes a node when its **parent
+is expanded** — when the parent has a config (a `children` section, inline or
+co-located) that walls its contents. An expanded node's *direct subdirectories*
+are all child nodes, isolated from each other by default; naming one in the
+config only attaches policy (`may_import` / `shared`) to it — it does not create
+it, and unnamed direct subdirectories are nodes too (just deny-default with no
+edges). A directory with no config of its own is a **leaf**: its subdirectories
+are part of its code, not further nodes. So node-ness — being walled from your
+siblings — comes from your **parent's** config; your own config walls your
+**children**, never yourself. The repo root is always expanded. A node's `path`
+is simply its directory (e.g. `pkg/kafka/consumer`), and parent/child follows
+from path prefix.
 
 `shared` scope follows **position** — there is no separate "global vs sibling"
 setting:
@@ -142,15 +151,14 @@ privates unreachable regardless of what is declared.
 
 ### Location assignment
 
-A file's `Location` is the **chain of declared nodes whose paths are prefixes
-of the file's path**, deepest match owning the file. Directories with no
-declared node belong to their nearest declared ancestor. No marker; depth
-unbounded.
+A file's `Location` is the **chain of nodes on its path**, the deepest node
+owning the file. A directory that is not a node (it sits under a leaf) belongs to
+the nearest node above it. No marker; depth unbounded.
 
 ```text
 file:  pkg/kafka/consumer/pool/x.go
-chain: [kafka, kafka/consumer]          # deepest declared prefix = kafka/consumer
-                                        # `pool` is undeclared → part of consumer
+chain: [kafka, kafka/consumer]          # kafka and consumer are nodes
+                                        # consumer is a leaf → pool is consumer's code
 ```
 
 ### Config placement
@@ -161,9 +169,9 @@ One filename everywhere: **`.cht-go-lint.yaml`**, cascading by directory (like
 - **Root** `.cht-go-lint.yaml` — global fields (`module`, `rules`, golangci
   settings) plus the root node's body, including inline node declarations for
   simple cases.
-- **Co-located** `.cht-go-lint.yaml` inside a feature directory — that
-  directory's node body. Its path is implied by location, so the node name is
-  not repeated.
+- **Co-located** `.cht-go-lint.yaml` inside a feature directory — wires that
+  directory's *children* (its path is implied by location). A node's edge to a
+  sibling still lives in the common parent's config, never here.
 - **Cascade:** the closer (co-located) declaration overrides the root for the
   same node. Root vs node is distinguished by content: the root carries
   `module:`.
