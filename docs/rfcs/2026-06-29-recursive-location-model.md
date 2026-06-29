@@ -158,29 +158,30 @@ is still node `S`'s outgoing set; only its *declaration site* is the parent.
 
 ### Default policy
 
-The default is **deny**: sibling nodes are isolated. An import from node `S` to
-node `T` is allowed iff any of:
+The default is **deny**: sibling nodes are isolated. Consider an import from a
+file in node `S` to a package in node `T`.
 
-1. `T` is within `S`'s own subtree (its descendant or ancestor) — a node sees
-   its own internals;
-2. `T ∈ S.may_import` — the importer declared it;
-3. `T` is `shared` and `S` is within `T`'s parent subtree — the importee
-   broadcast it.
+- **Vertical is always open.** If one of `S`, `T` is an ancestor of the other
+  (they lie on the same root-to-leaf line), the import is allowed — a node sees
+  its own subtree and may reach up to its enclosing features. `kafka` using its
+  `consumer` child, or `consumer` using `kafka`'s shared types, is always fine.
+- **Horizontal is checked at the divergence.** Otherwise `S` and `T` split at
+  some level: let `Sc` and `Tc` be the sibling nodes that are the children of
+  their lowest common ancestor. The import is allowed iff
+  - `Sc.may_import` lists a node that covers the target — `Tc` itself, or a node
+    inside it such as `kafka/core` — declared in the common parent; or
+  - the target node is `shared` and `Sc` lies in its parent's subtree.
 
-Otherwise it is a violation. No `isolate` flag is needed — deny is the baseline,
-and `may_import` / `shared` are how you open edges.
+  Otherwise it is a violation.
 
-**Walls are horizontal.** Only *siblings* are walled. The vertical parent↔child
-relationship is always open (condition 1): a node freely uses its own subtree,
-and a node may use its enclosing feature's code. So `kafka` orchestrating its
-`consumer` / `producer` children, or `consumer` reaching up to `kafka`'s shared
-types, is always allowed — what is enforced is the horizontal `consumer ⊥
-producer` between siblings. (A parent importing a child does *not* bridge the
-child's siblings: `kafka` using both `consumer` and `producer` never lets
-`consumer` import `producer`.) Because every cross-node import reduces to a
-sibling check at the point where `S` and `T` diverge, the same rule enforces
-`kafka ⊥ sqlrepo` (root-level siblings) and `consumer ⊥ producer` (siblings
-inside `kafka`) uniformly.
+No `isolate` flag is needed — deny is the baseline, and `may_import` / `shared`
+are how you open edges. Because the check always lands on the **divergence-level
+siblings**, the same rule covers every depth: a deep `kafka/consumer/x`
+importing `sqlrepo` resolves to the `kafka`-vs-`sqlrepo` check (so
+`kafka.may_import` governs it, not `consumer`'s), and `consumer ⊥ producer`
+resolves at `kafka`. A parent importing a child never bridges the child's
+siblings: `kafka` using both `consumer` and `producer` does not let `consumer`
+import `producer`.
 
 **Visibility is Go's job; cht does not duplicate it.** Go already enforces
 `internal/` (a package under `.../internal/...` is unreachable outside its
@@ -259,10 +260,10 @@ Step 5's `.go` walk applies the same exclusions and additionally skips
 
 ### Unified dependency rule
 
-For an internal import, with source node chain `S` and target node chain `T`,
-the import is allowed iff one of the three Default-policy conditions holds
-(own-subtree, `S.may_import`, or in-scope `shared`). This single check subsumes
-`module-isolation` (sibling isolation), `layer-direction` (`may_import`
+For an internal import, the engine takes the source and target node chains,
+applies the Default-policy check (vertical → open; otherwise the divergence-level
+sibling edge / `shared`), and reports a violation if it fails. This single check
+subsumes `module-isolation` (sibling isolation), `layer-direction` (`may_import`
 direction), `cross-boundary` (Go `internal/` for surface), and
 `subdomain-isolation` (sibling isolation at any depth).
 

@@ -140,25 +140,28 @@ producer`는 `kafka` config(의 `consumer` 키 아래)에 선언되고, 분리�
 
 ### 기본 정책
 
-기본은 **deny**: 형제 노드는 격리. 노드 `S` → 노드 `T` import는 다음 중 하나면
-허용:
+기본은 **deny**: 형제 노드는 격리. 노드 `S`의 파일이 노드 `T`의 패키지를 import하는
+경우를 보자.
 
-1. `T`가 `S`의 자기 서브트리 안(자손 또는 조상) — 자기 내부는 봄;
-2. `T ∈ S.may_import` — importer가 선언;
-3. `T`가 `shared`이고 `S`가 `T`의 부모 서브트리 안 — importee가 broadcast.
+- **수직은 항상 열림.** `S`, `T` 중 하나가 다른 쪽의 조상이면(같은 root→leaf 선상),
+  허용 — 노드는 자기 서브트리를 보고, 자기를 감싸는 기능까지 올라가 쓸 수 있다.
+  `kafka`가 자기 `consumer` 자식을 쓰거나 `consumer`가 `kafka`의 공유 타입을 쓰는
+  건 항상 OK.
+- **수평은 갈라지는 지점에서 체크.** 아니면 `S`와 `T`는 어느 레벨에서 갈린다: `Sc`,
+  `Tc`를 그 *최저 공통 조상*의 자식인 형제 노드라 하자. 다음이면 허용:
+  - `Sc.may_import`가 대상을 덮는 노드를 나열 — `Tc` 자체, 또는 그 안의 노드(예
+    `kafka/core`) — 공통 부모에 선언; 또는
+  - 대상 노드가 `shared`이고 `Sc`가 그 부모 서브트리 안.
 
-아니면 위반. `isolate` 플래그 불필요 — deny가 기본이고, `may_import`/`shared`가
-엣지를 여는 법.
+  아니면 위반.
 
-**벽은 수평이다.** *형제*끼리만 벽이다. 수직 parent↔child 관계는 항상 열려
-있다(조건 1): 노드는 자기 서브트리를 자유롭게 쓰고, 자기를 감싸는 기능의 코드도 쓸
-수 있다. 그래서 `kafka`가 자기 `consumer`/`producer` 자식을 orchestrate하거나
-`consumer`가 위로 `kafka`의 공유 타입을 쓰는 건 항상 허용 — 강제되는 건 형제 간
-수평 `consumer ⊥ producer`다. (부모가 자식을 import한다고 자식의 형제를 잇지
-않는다: `kafka`가 `consumer`·`producer` 둘 다 써도 `consumer`가 `producer`를
-import하게 되지 않는다.) 모든 cross-node import는 `S`와 `T`가 *갈라지는 지점*의 형제
-체크로 환원되므로, 같은 룰이 `kafka ⊥ sqlrepo`(root 형제)와 `consumer ⊥
-producer`(kafka 안 형제)를 동일하게 강제한다.
+`isolate` 플래그 불필요 — deny가 기본이고, `may_import`/`shared`가 엣지를 여는 법.
+체크가 항상 **갈라지는 레벨의 형제**에 떨어지므로 같은 룰이 모든 깊이를 커버한다:
+깊은 `kafka/consumer/x`가 `sqlrepo`를 import하면 `kafka`-vs-`sqlrepo` 체크로
+환원되고(`consumer`가 아니라 `kafka.may_import`가 관장), `consumer ⊥ producer`는
+`kafka`에서 환원된다. 부모가 자식을 import한다고 자식의 형제를 잇지 않는다:
+`kafka`가 `consumer`·`producer` 둘 다 써도 `consumer`가 `producer`를 import하게 되지
+않는다.
 
 **가시성은 Go의 일이고 cht는 중복하지 않는다.** Go가 이미 `internal/`(서브트리
 밖 도달 불가), 대문자/소문자, 비순환 import, 모듈 경계를 강제한다. cht는 Go가
@@ -225,11 +228,11 @@ Java JPMS, Nx 경계에서도 보이는 패턴.
 
 ### 통합 dependency 룰
 
-내부 import에 대해, source 체인 `S`, target 체인 `T`. 기본 정책 3조건 중 하나면
-허용(자기 서브트리 / `S.may_import` / in-scope `shared`). 이 단일 검사가
-`module-isolation`(형제 격리), `layer-direction`(`may_import` 방향),
-`cross-boundary`(표면은 Go `internal/`), `subdomain-isolation`(어느 깊이든 형제
-격리)을 흡수.
+내부 import에 대해, 엔진은 source/target 노드 체인을 받아 기본 정책 검사(수직 →
+열림; 아니면 갈라지는 레벨의 형제 엣지/`shared`)를 적용하고, 실패면 위반으로
+보고한다. 이 단일 검사가 `module-isolation`(형제 격리), `layer-direction`(`may_import`
+방향), `cross-boundary`(표면은 Go `internal/`), `subdomain-isolation`(어느 깊이든
+형제 격리)을 흡수.
 
 ### 모듈 추출
 
