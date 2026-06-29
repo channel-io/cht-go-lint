@@ -126,7 +126,7 @@ of the file's path**, deepest match owning the file. Directories with no
 declared node belong to their nearest declared ancestor. No marker; depth is
 unbounded.
 
-```
+```text
 file:  pkg/kafka/consumer/pool/x.go
 chain: [kafka, kafka/consumer]          # deepest declared prefix = kafka/consumer
                                         # `pool` is undeclared → part of consumer
@@ -182,7 +182,12 @@ AST), once per run; the tree becomes the location strategy used by every rule.
 This mirrors Bazel loading `BUILD` files before operating — a proven pattern
 also seen in Rust `mod`/`pub`, Java JPMS, and Nx module boundaries.
 
-```
+The discovery walk reuses the analyzer's existing exclusions — the built-in
+skip set (`vendor`, `testdata`, `.git`, `generated`, `node_modules`) and the
+configured `exclude_paths` — so vendored or generated `.cht-go-lint.yaml` files
+never enter the location strategy.
+
+```text
 1. Load root config
 2. Discover .cht-go-lint.yaml files (+ root inline nodes)   # new
 3. Assemble node tree by path                               # new
