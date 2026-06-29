@@ -76,6 +76,42 @@ rules shrink (4 → 1); structural change is the substance.
 - A **tier gate** skips a rule whose prerequisite config is absent.
 - Parsing is AST-only and cached per file across all rules.
 
+## Terminology
+
+**Tree**
+
+- **node** — a directory that is an isolation unit. A directory becomes a node
+  when its parent is *expanded*.
+- **root** — the top node; always a node.
+- **parent / child / sibling** — tree nesting; siblings share a parent.
+- **ancestor / descendant / subtree** — up / down a chain; a subtree is a node
+  plus all its descendants.
+- **expanded node** — a node whose config walls its direct subdirectories into
+  child nodes.
+- **leaf** — a node with no children; its subdirectories are part of its own
+  code, not nodes. (A leaf is still a node.)
+- **chain** — a file's `Location`: the nodes from root down to the node owning
+  the file, e.g. `[root, kafka, consumer]`.
+
+**Graph**
+
+- **import** — an actual Go `import` in source.
+- **edge** — a *declared, allowed* import relationship between two nodes. Default
+  is no edge (deny); the linter checks each import against the edges.
+- **`may_import`** — a directed edge declared on the importer (`A may_import B`
+  is the edge `A → B`).
+- **`shared`** — a broadcast edge: `B shared` opens edges from all of `B`'s
+  siblings (and their subtrees) into `B`.
+- **wall** — the default deny between sibling nodes; an edge is a gap in the wall.
+
+**Policy**
+
+- **deny-default** — sibling nodes have no edges unless one is declared.
+- **divergence point** — the level where two chains split; the sibling level at
+  which an import is checked.
+- **visibility** — Go's `internal/` + exported/unexported identifiers. Separate
+  from cht edges; cht defers surface control to Go.
+
 ## Proposed design
 
 ### Node tree
@@ -132,10 +168,19 @@ node `T` is allowed iff any of:
    broadcast it.
 
 Otherwise it is a violation. No `isolate` flag is needed — deny is the baseline,
-and `may_import` / `shared` are how you open edges. Because every cross-node
-import reduces to a sibling check at the point where `S` and `T` diverge in the
-tree, the same rule enforces `kafka ⊥ sqlrepo` (root-level siblings) and
-`consumer ⊥ producer` (siblings inside `kafka`) uniformly.
+and `may_import` / `shared` are how you open edges.
+
+**Walls are horizontal.** Only *siblings* are walled. The vertical parent↔child
+relationship is always open (condition 1): a node freely uses its own subtree,
+and a node may use its enclosing feature's code. So `kafka` orchestrating its
+`consumer` / `producer` children, or `consumer` reaching up to `kafka`'s shared
+types, is always allowed — what is enforced is the horizontal `consumer ⊥
+producer` between siblings. (A parent importing a child does *not* bridge the
+child's siblings: `kafka` using both `consumer` and `producer` never lets
+`consumer` import `producer`.) Because every cross-node import reduces to a
+sibling check at the point where `S` and `T` diverge, the same rule enforces
+`kafka ⊥ sqlrepo` (root-level siblings) and `consumer ⊥ producer` (siblings
+inside `kafka`) uniformly.
 
 **Visibility is Go's job; cht does not duplicate it.** Go already enforces
 `internal/` (a package under `.../internal/...` is unreachable outside its
@@ -175,6 +220,14 @@ One filename everywhere: **`.cht-go-lint.yaml`**, cascading by directory (like
 - **Cascade:** the closer (co-located) declaration overrides the root for the
   same node. Root vs node is distinguished by content: the root carries
   `module:`.
+- **Top-level roots:** code usually lives under a prefix like `pkg/`. A
+  `roots: [pkg]` option (carried from `flat-pkg`) tells the root node where its
+  top-level feature children begin, so `pkg/kafka` and `pkg/sqlrepo` are the
+  root's children rather than `pkg` being one node.
+- **Severity override:** a node's config may set a rule's severity for its own
+  subtree (cascade) — e.g. a legacy node kept at `warn` while the global default
+  is `error`. This is the per-component severity override the current tool
+  already has.
 
 **Recommendation:** small, centrally-owned repos (`go-lib`) keep everything in a
 single root file; large multi-team repos (`ch-app-store`) co-locate per feature.
@@ -200,6 +253,9 @@ in Rust `mod`/`pub`, Java JPMS, and Nx module boundaries.
 5. Rule loop: walk .go files, assign Location via the tree, check
 6. golangci integration
 ```
+
+Step 5's `.go` walk applies the same exclusions and additionally skips
+`_test.go` files, as the current engine does.
 
 ### Unified dependency rule
 
