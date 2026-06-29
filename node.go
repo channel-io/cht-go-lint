@@ -1,0 +1,112 @@
+package lint
+
+import "strings"
+
+// NodeConfig is the YAML shape of a node: its policy plus its children.
+//
+// `may_import` and `shared` are declared on a node by its parent (the parent's
+// `children` map keys this config), so they live with the sibling wiring.
+type NodeConfig struct {
+	// Shared marks the node importable by any node within its parent's subtree.
+	Shared bool `yaml:"shared,omitempty"`
+	// MayImport lists the sibling names this node may import.
+	MayImport []string `yaml:"may_import,omitempty"`
+	// Children declares the direct subdirectories that are wired as child nodes.
+	Children map[string]*NodeConfig `yaml:"children,omitempty"`
+}
+
+// Node is one directory in the architecture tree.
+//
+// A node is "walling" when it has children (it walls them apart). A node is
+// "walled" — isolated from its siblings — by virtue of its parent having
+// declared it. Both `Shared` and `MayImport` are the node's own policy, supplied
+// by the parent that declared it.
+type Node struct {
+	Name      string           // directory segment, e.g. "consumer"
+	Path      string           // slash path from the top feature level, e.g. "kafka/consumer"
+	Parent    *Node            // nil for the root
+	Children  map[string]*Node // present ⇒ this node walls its children
+	Shared    bool
+	MayImport []string
+}
+
+// IsWalling reports whether the node walls its children (has any declared).
+func (n *Node) IsWalling() bool { return len(n.Children) > 0 }
+
+// NodeTree is the assembled architecture tree.
+type NodeTree struct {
+	Root  *Node    // the synthetic root node (Path "")
+	Roots []string // path prefixes under which top-level nodes live, e.g. ["pkg"]
+}
+
+// BuildNodeTree assembles a tree from the root node's children.
+func BuildNodeTree(roots []string, children map[string]*NodeConfig) *NodeTree {
+	root := &Node{Children: map[string]*Node{}}
+	buildChildren(root, children)
+	return &NodeTree{Root: root, Roots: roots}
+}
+
+func buildChildren(parent *Node, cfgs map[string]*NodeConfig) {
+	for name, c := range cfgs {
+		n := &Node{
+			Name:     name,
+			Path:     joinNodePath(parent.Path, name),
+			Parent:   parent,
+			Children: map[string]*Node{},
+		}
+		if c != nil {
+			n.Shared = c.Shared
+			n.MayImport = c.MayImport
+			buildChildren(n, c.Children)
+		}
+		parent.Children[name] = n
+	}
+}
+
+func joinNodePath(parent, name string) string {
+	if parent == "" {
+		return name
+	}
+	return parent + "/" + name
+}
+
+// Chain returns the node chain that owns a path relative to the module root.
+// The walk descends declared nodes only and stops at the first segment that is
+// not a node, so the deepest declared node owns the path (and a trailing file
+// name, which matches no child, naturally terminates the walk).
+func (t *NodeTree) Chain(relPath string) []*Node {
+	rel, ok := t.stripRoot(relPath)
+	if !ok || rel == "" {
+		return nil
+	}
+	var chain []*Node
+	cur := t.Root
+	for _, seg := range strings.Split(rel, "/") {
+		next, ok := cur.Children[seg]
+		if !ok {
+			break
+		}
+		chain = append(chain, next)
+		cur = next
+	}
+	return chain
+}
+
+// stripRoot removes a configured root prefix (e.g. "pkg/"). It returns ok=false
+// when the path lies outside every configured root. With no roots configured the
+// path is used as-is.
+func (t *NodeTree) stripRoot(relPath string) (string, bool) {
+	relPath = strings.TrimPrefix(relPath, "./")
+	if len(t.Roots) == 0 {
+		return relPath, true
+	}
+	for _, r := range t.Roots {
+		if relPath == r {
+			return "", true
+		}
+		if strings.HasPrefix(relPath, r+"/") {
+			return strings.TrimPrefix(relPath, r+"/"), true
+		}
+	}
+	return "", false
+}
