@@ -20,7 +20,7 @@ import (
 //   - library: a heterogeneous library (pkg/ features, per-feature internals)
 //   - msa:     a service with the channeltalk/msa-v2 layers and directions
 func TestExampleProjects(t *testing.T) {
-	for _, dir := range []string{"testdata/library", "testdata/msa"} {
+	for _, dir := range []string{"testdata/node-tree/library", "testdata/node-tree/msa"} {
 		t.Run(dir, func(t *testing.T) {
 			cfg, err := lint.LoadConfig(dir)
 			if err != nil {
@@ -35,12 +35,12 @@ func TestExampleProjects(t *testing.T) {
 	}
 }
 
-// TestViolationsFixture loads testdata/violations — a deliberately-broken project
+// TestViolationsFixture loads testdata/node-tree/violations — a deliberately-broken project
 // — and asserts the import rule reports a violation at exactly the lines marked
 // with a `// WANT-VIOLATION` comment, and nowhere else. This guards against a
 // "false clean" rule: a no-op rule would pass the clean projects but fail here.
 func TestViolationsFixture(t *testing.T) {
-	const root = "testdata/violations"
+	const root = "testdata/node-tree/violations"
 
 	cfg, err := lint.LoadConfig(root)
 	if err != nil {
