@@ -1,13 +1,27 @@
-# Example service on the node-tree model, mirroring the channeltalk/msa-v2 layers
-# and directions. Domains live under internal/domain. Layers are wired per
-# msa-v2; domains are isolated and cross only through a public layer.
+# Example service (MSA) on the node-tree model. The msa-v2 layer wiring is defined
+# ONCE as a template and applied to every domain — global layer rules, domain-agnostic.
 module: example.com/svc
 location:
   strategy: node-tree
 roots: [internal/domain]
 rules:
   dependency/import: error
+
+# Global layers: one definition, every domain reuses it (model is shared; the rest
+# are directional). Mirrors channeltalk/msa-v2 directions.
+templates:
+  layers:
+    model: { shared: true }
+    repo: {}                                       # model via shared
+    infra: {}                                       # model via shared
+    svc: { may_import: [repo] }                      # + model (shared)
+    appsvc: { may_import: [repo, svc, infra] }        # + model (shared)
+    publicsvc: { may_import: [appsvc] }               # + model (shared)
+    handler: { may_import: [svc, appsvc, publicsvc] } # + model (shared)
+
 children:
   app:
-    may_import: [order]   # app may reach order (Go internal/ keeps it to order's public packages)
-  order: {}
+    template: layers
+    may_import: [order]   # app may reach order (through order's public surface)
+  order:
+    template: layers

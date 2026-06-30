@@ -1,8 +1,0 @@
-children:
-  model: { shared: true }
-  repo: {}                                       # model via shared
-  infra: {}                                       # model via shared
-  svc: { may_import: [repo] }                      # + model (shared)
-  appsvc: { may_import: [repo, svc, infra] }        # + model (shared)
-  publicsvc: { may_import: [appsvc] }               # + model (shared)
-  handler: { may_import: [svc, appsvc, publicsvc] } # + model (shared)

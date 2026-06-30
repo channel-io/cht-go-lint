@@ -431,6 +431,46 @@ var _ = sqlrepo.DB{}
 	}
 }
 
+func TestNodeTreeGlobalLayerTemplate(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// One layer template, applied to two domains. A reverse-direction import
+	// (model importing svc) must be caught in BOTH domains from the single
+	// template definition — i.e. the layer rule is global, domain-agnostic.
+	for _, d := range []string{"app", "order"} {
+		writeGoFile(t, dir, "internal/"+d+"/svc/svc.go", "package svc\n\nfunc Do() {}\n")
+		writeGoFile(t, dir, "internal/"+d+"/model/model.go", "package model\n\ntype T struct{}\n")
+		writeGoFile(t, dir, "internal/"+d+"/model/bad.go",
+			"package model\n\nimport \"example.com/test/internal/"+d+"/svc\"\n\nvar _ = svc.Do\n")
+	}
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"internal"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Templates: map[string]map[string]*lint.NodeConfig{
+			"layers": {
+				"model": {Shared: true},
+				"svc":   {MayImport: []string{"model"}},
+			},
+		},
+		Children: map[string]*lint.NodeConfig{
+			"app":   {Template: "layers"},
+			"order": {Template: "layers"},
+		},
+		Rules: map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+
+	report := lint.Check(cfg)
+	// model -> svc reverse, once per domain = 2.
+	if report.ErrorCount() != 2 {
+		t.Errorf("global layer template should catch the reverse import in both domains (want 2), got %d:\n%s",
+			report.ErrorCount(), report.String())
+	}
+}
+
 func TestNodeTreeLeafAncestorTransparent(t *testing.T) {
 	dir := t.TempDir()
 	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")

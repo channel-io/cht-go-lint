@@ -259,6 +259,31 @@ single root file; large multi-team repos (`ch-app-store`) co-locate per feature.
 Splitting a feature into its own file is the escape valve for scale, not the
 default.
 
+### Global layers (templates)
+
+A service repo usually wants the *same* layer wiring in every domain —
+`svc → repo → model`, `handler → svc`, etc., regardless of which domain. Repeating
+that per domain is the duplication the old global `Layer` axis avoided. A
+**template** restores it without a separate axis: define the layer child-set once
+under root `templates:` and have each domain reference it.
+
+```yaml
+templates:
+  layers:                                  # the msa-v2 directions, once
+    model: { shared: true }
+    repo: {}
+    svc:  { may_import: [repo] }
+    handler: { may_import: [svc] }
+children:
+  app:   { template: layers, may_import: [order] }
+  order: { template: layers }
+```
+
+A domain's `template` supplies its children; explicitly listed children win over
+template entries of the same name. The wiring is enforced identically in every
+domain that references it — global layers, expressed as ordinary node edges
+rather than a parallel concept. (See `testdata/msa`.)
+
 ### Discovery & assembly
 
 A startup phase walks the tree for `.cht-go-lint.yaml` files, merges them with

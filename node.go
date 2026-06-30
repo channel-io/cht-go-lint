@@ -13,6 +13,35 @@ type NodeConfig struct {
 	MayImport []string `yaml:"may_import,omitempty"`
 	// Children declares the direct subdirectories that are wired as child nodes.
 	Children map[string]*NodeConfig `yaml:"children,omitempty"`
+	// Template names a reusable child-set (from the root `templates:`) to apply as
+	// this node's children — e.g. a global layer wiring shared by every domain.
+	// Explicitly listed children win over template entries of the same name.
+	Template string `yaml:"template,omitempty"`
+}
+
+// expandTemplates resolves every `template:` reference in a children tree by
+// merging the named template's children into the referencing node. Templates are
+// shared, read-only NodeConfig values, so domains can reuse one layer wiring
+// instead of repeating it.
+func expandTemplates(children map[string]*NodeConfig, templates map[string]map[string]*NodeConfig) {
+	for _, c := range children {
+		if c == nil {
+			continue
+		}
+		if c.Template != "" {
+			if tmpl, ok := templates[c.Template]; ok {
+				if c.Children == nil {
+					c.Children = map[string]*NodeConfig{}
+				}
+				for name, tc := range tmpl {
+					if _, exists := c.Children[name]; !exists {
+						c.Children[name] = tc
+					}
+				}
+			}
+		}
+		expandTemplates(c.Children, templates)
+	}
 }
 
 // Node is one directory in the architecture tree.

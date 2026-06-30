@@ -1,4 +1,0 @@
-children:
-  model: { shared: true }
-  appsvc: {}
-  publicsvc: { may_import: [appsvc] }
