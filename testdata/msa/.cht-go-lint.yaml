@@ -1,0 +1,13 @@
+# Example service (MSA) project on the node-tree model.
+# Domains live under internal/domain. Each domain has uniform layers wired
+# directionally; domains are isolated, crossing only via may_import.
+module: example.com/svc
+location:
+  strategy: node-tree
+roots: [internal/domain]
+rules:
+  dependency/import: error
+children:
+  app:
+    may_import: [order]   # app may call order (through order's public surface)
+  order: {}

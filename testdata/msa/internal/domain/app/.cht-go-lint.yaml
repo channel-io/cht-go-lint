@@ -1,0 +1,6 @@
+# app's layers (directional): handler -> svc -> repo -> model.
+children:
+  model: { shared: true }                 # importable by every app layer
+  repo: { may_import: [model] }
+  svc: { may_import: [repo, model] }
+  handler: { may_import: [svc, model] }
