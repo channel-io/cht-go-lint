@@ -128,9 +128,29 @@ func resolveStrategy(cfg *Config) LocationStrategy {
 		return NewNestedDomainStrategy(cfg)
 	case "flat-pkg":
 		return NewFlatPkgStrategy(cfg)
+	case "node-tree":
+		return NewNodeTreeStrategy(buildTreeFromConfig(cfg))
 	default:
 		return nil
 	}
+}
+
+// buildTreeFromConfig assembles the node tree from the root config's inline
+// children merged with any co-located .cht-go-lint.yaml files under the roots.
+func buildTreeFromConfig(cfg *Config) *NodeTree {
+	roots := cfg.Roots
+	if len(roots) == 0 {
+		if v, ok := cfg.Location.Options["roots"].([]any); ok {
+			for _, r := range v {
+				if s, ok := r.(string); ok {
+					roots = append(roots, s)
+				}
+			}
+		}
+	}
+	tree := BuildNodeTree(roots, cfg.Children)
+	mergeColocatedNodes(tree, cfg.Root)
+	return tree
 }
 
 func tierSatisfied(tier Tier, cfg *Config) bool {

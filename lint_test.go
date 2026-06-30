@@ -22,7 +22,7 @@ func TestRuleRegistration(t *testing.T) {
 	}
 
 	expected := map[string]int{
-		"dependency": 11,
+		"dependency": 12,
 		"naming":     8,
 		"interface":  5,
 		"structure":  9,
@@ -365,6 +365,120 @@ func TestPresetMerge(t *testing.T) {
 	// Layers should come from preset
 	if len(cfg.Layers) != 2 {
 		t.Errorf("layers: got %d, want 2 from preset", len(cfg.Layers))
+	}
+}
+
+func TestNodeTreeImportRule(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	writeGoFile(t, dir, "pkg/kafka/core/core.go", "package core\n\ntype Record struct{}\n")
+	writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n\ntype Publisher struct{}\n")
+	// consumer → producer (allowed) + core (shared, allowed)
+	writeGoFile(t, dir, "pkg/kafka/consumer/consumer.go", `package consumer
+
+import (
+	"example.com/test/pkg/kafka/producer"
+	"example.com/test/pkg/kafka/core"
+)
+
+type Subscriber struct {
+	_ producer.Publisher
+	_ core.Record
+}
+`)
+	// producer → consumer (reverse, violation)
+	writeGoFile(t, dir, "pkg/kafka/producer/bad.go", `package producer
+
+import "example.com/test/pkg/kafka/consumer"
+
+var _ = consumer.Subscriber{}
+`)
+	// consumer → sqlrepo (cross-feature, violation)
+	writeGoFile(t, dir, "pkg/kafka/consumer/cross.go", `package consumer
+
+import "example.com/test/pkg/sqlrepo"
+
+var _ = sqlrepo.DB{}
+`)
+	writeGoFile(t, dir, "pkg/sqlrepo/sqlrepo.go", "package sqlrepo\n\ntype DB struct{}\n")
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Children: map[string]*lint.NodeConfig{
+			"sqlrepo": {},
+			"kafka": {
+				Children: map[string]*lint.NodeConfig{
+					"core":     {Shared: true},
+					"producer": {},
+					"consumer": {MayImport: []string{"producer"}},
+				},
+			},
+		},
+		Rules: map[string]lint.RuleConfig{
+			"dependency/import": {Severity: lint.Error},
+		},
+	}
+
+	report := lint.Check(cfg)
+	// Two violations: producer→consumer (reverse) and consumer→sqlrepo (cross-feature).
+	// consumer→producer (may_import) and consumer→core (shared) are allowed.
+	if report.ErrorCount() != 2 {
+		t.Errorf("expected 2 errors, got %d:\n%s", report.ErrorCount(), report.String())
+	}
+}
+
+func TestNodeTreeColocated(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// kafka's internal wiring lives in a co-located config, not the root.
+	writeGoFile(t, dir, "pkg/kafka/.cht-go-lint.yaml", `children:
+  producer: {}
+  consumer:
+    may_import: [producer]
+`)
+	writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n\ntype Publisher struct{}\n")
+	writeGoFile(t, dir, "pkg/kafka/consumer/consumer.go", `package consumer
+
+import "example.com/test/pkg/kafka/producer"
+
+var _ = producer.Publisher{}
+`)
+	// reverse — violation
+	writeGoFile(t, dir, "pkg/kafka/producer/bad.go", `package producer
+
+import "example.com/test/pkg/kafka/consumer"
+
+func bad() any { return consumer.X }
+`)
+	writeGoFile(t, dir, "pkg/kafka/consumer/consumer.go", `package consumer
+
+import "example.com/test/pkg/kafka/producer"
+
+var X = 1
+var _ = producer.Publisher{}
+`)
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Children:   map[string]*lint.NodeConfig{"kafka": {}}, // children come from the co-located file
+		Rules: map[string]lint.RuleConfig{
+			"dependency/import": {Severity: lint.Error},
+		},
+	}
+
+	report := lint.Check(cfg)
+	// Only producer→consumer (reverse) violates; consumer→producer is allowed by
+	// the co-located may_import.
+	if report.ErrorCount() != 1 {
+		t.Errorf("expected 1 error, got %d:\n%s", report.ErrorCount(), report.String())
 	}
 }
 

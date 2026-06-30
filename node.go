@@ -92,6 +92,40 @@ func (t *NodeTree) Chain(relPath string) []*Node {
 	return chain
 }
 
+// attachNodeAt finds (or creates) the node for a directory relative to the
+// module root and applies a co-located config to it — its children wiring, plus
+// any policy it carries. Intermediate nodes are created as needed.
+func (t *NodeTree) attachNodeAt(relDir string, c *NodeConfig) {
+	rel, ok := t.stripRoot(relDir)
+	if !ok || rel == "" {
+		return
+	}
+	cur := t.Root
+	for _, seg := range strings.Split(rel, "/") {
+		next, ok := cur.Children[seg]
+		if !ok {
+			next = &Node{
+				Name:     seg,
+				Path:     joinNodePath(cur.Path, seg),
+				Parent:   cur,
+				Children: map[string]*Node{},
+			}
+			cur.Children[seg] = next
+		}
+		cur = next
+	}
+	if c == nil {
+		return
+	}
+	if c.Shared {
+		cur.Shared = true
+	}
+	if len(c.MayImport) > 0 {
+		cur.MayImport = c.MayImport
+	}
+	buildChildren(cur, c.Children)
+}
+
 // stripRoot removes a configured root prefix (e.g. "pkg/"). It returns ok=false
 // when the path lies outside every configured root. With no roots configured the
 // path is used as-is.

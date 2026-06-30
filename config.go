@@ -25,6 +25,10 @@ type Config struct {
 	Location     *LocationConfig       `yaml:"location,omitempty"`
 	ExcludePaths []string              `yaml:"exclude_paths,omitempty"`
 	GoLint       *GoLintConfig         `yaml:"go_lint,omitempty"`
+
+	// Node-tree model (location.strategy: node-tree).
+	Roots    []string               `yaml:"roots,omitempty"`    // path prefixes for top-level nodes, e.g. [pkg]
+	Children map[string]*NodeConfig `yaml:"children,omitempty"` // the root node's children
 }
 
 // LayerConfig defines a layer and its allowed imports.
