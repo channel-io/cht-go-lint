@@ -78,17 +78,18 @@ rules shrink (4 → 1); structural change is the substance.
 
 **Tree**
 
-- **node** — a directory that participates as a unit: either walled by its parent
-  (a *walling* parent) or itself a *walling node*.
-- **root** — the top node; always a node.
+- **node** — every directory is a node. Most carry no policy; they matter only
+  when a walling ancestor isolates them.
+- **root** — the top node; always a walling node.
 - **parent / child / sibling** — tree nesting; siblings share a parent.
 - **ancestor / descendant / subtree** — up / down a chain; a subtree is a node
   plus all its descendants.
-- **walling node** — a directory with a config; it walls its direct
-  subdirectories into child nodes. Local — independent of whether it is itself
-  walled.
-- **leaf** — a node with no children; its subdirectories are part of its own
-  code, not nodes. (A leaf is still a node.)
+- **walling node** — a node whose config declares children; it puts a **wall**
+  between those children. A directory becomes walling by having a config — nothing
+  else. (Intermediate directories created only to reach a deeper config are *not*
+  walling.)
+- **leaf** — a node with no config (non-walling); its subdirectories are part of
+  its own code, governed by the nearest walling ancestor.
 - **chain** — a file's `Location`: the nodes from root down to the node owning
   the file, e.g. `[root, kafka, consumer]`.
 
@@ -101,7 +102,9 @@ rules shrink (4 → 1); structural change is the substance.
   is the edge `A → B`).
 - **`shared`** — a broadcast edge: `B shared` opens edges from all of `B`'s
   siblings (and their subtrees) into `B`.
-- **wall** — the default deny between sibling nodes; an edge is a gap in the wall.
+- **wall** — the default deny between the children of a walling node; an edge is
+  a gap in the wall. Only a walling node's children are walled — siblings under a
+  non-walling (leaf) parent are not.
 
 **Policy**
 
@@ -123,22 +126,28 @@ fields:
 | `may_import` | pull (importer) | Nodes this node may import. Explicit, directed edges. |
 | `shared` | push (importee) | If `true`, this node may be imported by any node within its **parent's subtree**. A common dependency, declared once instead of in every sibling's `may_import`. |
 
-**What makes a directory a node.** Two separate things, often conflated:
+**Every directory is a node; walls come from the parent.** There is one rule:
 
-- A directory **walls its children** — is a *walling node* — when it has a config
-  (a `children` section, inline or co-located). This is **local**: its direct
-  subdirectories become child nodes, isolated from each other by default. Adding a
-  config to `kafka/consumer/pool` makes `pool` a walling node over its own
-  subtree; it does *not* promote `consumer`. The repo root is always a walling
-  node.
-- A directory is **walled from its siblings** only when its *parent* is a walling
-  node. So whether `consumer` is isolated from its siblings is `kafka`'s call, not
-  `consumer`'s — node-hood at your level comes from your **parent's** config.
+> A **walling node** — a node whose config declares children — puts a **wall**
+> between those children. Everything else is just a node with no policy.
 
-A directory with no config whose parent is a leaf is just code. Naming a child in
-a config only attaches policy (`may_import` / `shared`); unnamed direct
-subdirectories are nodes too (deny-default, no edges). A node's `path` is simply
-its directory (e.g. `pkg/kafka/consumer`); parent/child follows from path prefix.
+So a child is walled from its siblings exactly when its **parent is a walling
+node**. Adding a config to `kafka/consumer/pool` makes `pool` a walling node over
+*its own* children; it does not make `consumer` walling, so it never walls
+`consumer`'s other subdirectories. The repo root is always a walling node, so its
+top-level features (`kafka`, `sqlrepo`) are walled.
+
+Naming a child in a config only attaches policy (`may_import` / `shared`);
+unnamed direct subdirectories are still walled siblings (deny-default, no edges).
+A node's `path` is simply its directory (e.g. `pkg/kafka/consumer`); parent/child
+follows from path prefix.
+
+**Intermediate nodes are transparent.** A deep co-located config (say at
+`a/x/feat`) materialises the nodes on its path (`a`, `a/x`, …) so the tree can
+reach it, but those auto-created nodes are **not** walling — only a node with its
+own config walls. So if `a` is a leaf, two deep branches `a/x/feat1` and
+`a/y/feat2` are *not* walled against each other; the wall only ever sits on a
+node that actually declared children.
 
 `shared` scope follows **position** — there is no separate "global vs sibling"
 setting:
@@ -170,7 +179,9 @@ file in node `S` to a package in node `T`.
   `consumer` child, or `consumer` using `kafka`'s shared types, is always fine.
 - **Horizontal is checked at the divergence.** Otherwise `S` and `T` split at
   some level: let `Sc` and `Tc` be the sibling nodes that are the children of
-  their lowest common ancestor. The import is allowed iff
+  their lowest common ancestor `P`. If `P` is **not a walling node** (it declared
+  no children — e.g. an intermediate node, or a leaf ancestor), there is no wall
+  and the import is allowed. If `P` is walling, the import is allowed iff
   - `Tc ∈ Sc.may_import` — the sibling edge `Sc → Tc`, declared in the common
     parent. Entries name **siblings only**; how much of `Tc` is then reachable is
     Go's `internal/` decision, not a deeper `may_import` path. Or
@@ -195,20 +206,22 @@ may import which). A node hides its privates with `internal/`; cht's check runs
 on top of — never instead of — Go's visibility.
 
 **Cross-feature exposure** therefore needs no `public` field. To let `sqlrepo`
-use `kafka/core`, the root config (their common parent) declares
-`sqlrepo: { may_import: [kafka/core] }`; Go's `internal/` keeps `kafka`'s
-privates unreachable regardless of what is declared.
+use `kafka`, the root config (their common parent) declares
+`sqlrepo: { may_import: [kafka] }` — `may_import` names siblings, so it grants
+`kafka` as a whole; Go's `internal/` decides how much of `kafka` is actually
+reachable.
 
 ### Location assignment
 
-A file's `Location` is the **chain of nodes on its path**, the deepest node
-owning the file. A directory that is not a node (it sits under a leaf) belongs to
-the nearest node above it. No marker; depth unbounded.
+A file's `Location` is the **chain of declared nodes on its path** down to the
+deepest one owning the file. The walk descends declared nodes and stops where a
+directory was never declared, so that deepest node owns everything below it. No
+marker; depth unbounded.
 
 ```text
 file:  pkg/kafka/consumer/pool/x.go
-chain: [kafka, kafka/consumer]          # kafka and consumer are nodes
-                                        # consumer is a leaf → pool is consumer's code
+chain: [kafka, kafka/consumer]          # kafka declares consumer; consumer is a
+                                        # leaf (declares nothing) → pool is its code
 ```
 
 ### Config placement

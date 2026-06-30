@@ -431,6 +431,39 @@ var _ = sqlrepo.DB{}
 	}
 }
 
+func TestNodeTreeLeafAncestorTransparent(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// A is declared but is a leaf (no children of its own). Two deep branches
+	// each carry a co-located config, so x and y are auto-created intermediates.
+	// Because A does not wall, x and y must NOT be walled against each other.
+	writeGoFile(t, dir, "pkg/a/x/feat1/.cht-go-lint.yaml", "children:\n  thing: {}\n")
+	writeGoFile(t, dir, "pkg/a/y/feat2/.cht-go-lint.yaml", "children:\n  thing: {}\n")
+	writeGoFile(t, dir, "pkg/a/y/feat2/feat2.go", "package feat2\n\ntype T struct{}\n")
+	writeGoFile(t, dir, "pkg/a/x/feat1/feat1.go", `package feat1
+
+import "example.com/test/pkg/a/y/feat2"
+
+var _ = feat2.T{}
+`)
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Children:   map[string]*lint.NodeConfig{"a": {}}, // a is a leaf
+		Rules:      map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+
+	report := lint.Check(cfg)
+	if report.ErrorCount() != 0 {
+		t.Errorf("leaf ancestor must not wall its deep branches, got %d:\n%s",
+			report.ErrorCount(), report.String())
+	}
+}
+
 func TestNodeTreeColocated(t *testing.T) {
 	dir := t.TempDir()
 	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
