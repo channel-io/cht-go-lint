@@ -1,0 +1,12 @@
+# Example project for the recursive node-tree model.
+# Top-level features live under pkg/. errs is a root-level shared foundation.
+module: example.com/app
+location:
+  strategy: node-tree
+roots: [pkg]
+rules:
+  dependency/import: error
+children:
+  errs: { shared: true }   # importable everywhere
+  sqlrepo: {}
+  kafka: {}                # internal wiring is co-located (pkg/kafka/.cht-go-lint.yaml)
