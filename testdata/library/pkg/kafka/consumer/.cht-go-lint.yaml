@@ -1,0 +1,5 @@
+# consumer is deep enough to wall its own internals (recursion).
+children:
+  decode: { shared: true }                 # consumer-internal common
+  handler: { may_import: [decode] }
+  # pool not declared -> not a node, part of consumer's code
