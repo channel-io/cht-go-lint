@@ -148,6 +148,7 @@ func buildTreeFromConfig(cfg *Config) *NodeTree {
 			}
 		}
 	}
+	applyDefaultTemplate(cfg.Children, cfg.DefaultTemplate)
 	expandTemplates(cfg.Children, cfg.Templates)
 	tree := BuildNodeTree(roots, cfg.Children)
 	mergeColocatedNodes(tree, cfg.Root)

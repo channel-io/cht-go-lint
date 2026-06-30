@@ -19,9 +19,10 @@ templates:
     publicsvc: { may_import: [appsvc] }               # + model (shared)
     handler: { may_import: [svc, appsvc, publicsvc] } # + model (shared)
 
+# Every domain gets the layer template by default — no per-domain repetition.
+default_template: layers
+
 children:
   app:
-    template: layers
     may_import: [order]   # app may reach order (through order's public surface)
-  order:
-    template: layers
+  order: {}

@@ -19,16 +19,33 @@ type NodeConfig struct {
 	Template string `yaml:"template,omitempty"`
 }
 
+// applyDefaultTemplate gives every top-level node the default template unless it
+// opts out. A node with its own `children` or `template` is left as-is; the
+// reserved value `none` is an explicit opt-out (a foundation with no layers).
+func applyDefaultTemplate(children map[string]*NodeConfig, name string) {
+	if name == "" {
+		return
+	}
+	for _, c := range children {
+		if c == nil {
+			continue
+		}
+		if c.Template == "" && len(c.Children) == 0 {
+			c.Template = name
+		}
+	}
+}
+
 // expandTemplates resolves every `template:` reference in a children tree by
 // merging the named template's children into the referencing node. Templates are
 // shared, read-only NodeConfig values, so domains can reuse one layer wiring
-// instead of repeating it.
+// instead of repeating it. The reserved name `none` expands to nothing.
 func expandTemplates(children map[string]*NodeConfig, templates map[string]map[string]*NodeConfig) {
 	for _, c := range children {
 		if c == nil {
 			continue
 		}
-		if c.Template != "" {
+		if c.Template != "" && c.Template != "none" {
 			if tmpl, ok := templates[c.Template]; ok {
 				if c.Children == nil {
 					c.Children = map[string]*NodeConfig{}

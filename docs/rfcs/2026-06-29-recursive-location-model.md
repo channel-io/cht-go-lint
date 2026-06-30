@@ -274,15 +274,19 @@ templates:
     repo: {}
     svc:  { may_import: [repo] }
     handler: { may_import: [svc] }
+default_template: layers                    # every domain gets it, no repetition
 children:
-  app:   { template: layers, may_import: [order] }
-  order: { template: layers }
+  app:   { may_import: [order] }            # default layers + a cross-domain edge
+  order: {}                                 # default layers
+  errs:  { shared: true, template: none }   # opt out — a foundation, not a domain
 ```
 
-A domain's `template` supplies its children; explicitly listed children win over
-template entries of the same name. The wiring is enforced identically in every
-domain that references it — global layers, expressed as ordinary node edges
-rather than a parallel concept. (See `testdata/msa`.)
+`default_template` applies a template to every top-level node automatically; a
+node opts out with `template: none`, or overrides by declaring its own
+`children` / `template`. A template's children are merged in, with explicitly
+listed children winning. The wiring is enforced identically in every domain —
+global layers, expressed as ordinary node edges rather than a parallel concept.
+(See `testdata/msa`.)
 
 ### Discovery & assembly
 

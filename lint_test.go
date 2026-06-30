@@ -456,9 +456,10 @@ func TestNodeTreeGlobalLayerTemplate(t *testing.T) {
 				"svc":   {MayImport: []string{"model"}},
 			},
 		},
+		DefaultTemplate: "layers", // applied to every domain without per-domain repetition
 		Children: map[string]*lint.NodeConfig{
-			"app":   {Template: "layers"},
-			"order": {Template: "layers"},
+			"app":   {},
+			"order": {},
 		},
 		Rules: map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
 	}
