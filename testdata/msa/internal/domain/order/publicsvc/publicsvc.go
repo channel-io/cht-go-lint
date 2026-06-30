@@ -1,5 +1,5 @@
 package publicsvc
 
-import "example.com/svc/internal/domain/order/model" // shared -> allowed
+import "example.com/svc/internal/domain/order/appsvc"
 
-func Find() model.Order { return model.Order{} }
+func Find() { _ = appsvc }

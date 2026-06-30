@@ -1,8 +1,11 @@
 package handler
 
 import (
-	"example.com/svc/internal/domain/app/model" // shared -> allowed
-	"example.com/svc/internal/domain/app/svc"    // may_import -> allowed
+	apppub "example.com/svc/internal/domain/app/publicsvc"
+	"example.com/svc/internal/domain/app/svc"
+	orderpub "example.com/svc/internal/domain/order/publicsvc"
 )
 
-func H() model.Account { return svc.Do() }
+var _ = svc.Do
+var _ = apppub.Of
+var _ = orderpub.Find

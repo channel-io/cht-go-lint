@@ -1,3 +1,4 @@
 children:
   model: { shared: true }
-  publicsvc: { may_import: [model] }       # order's public entry point
+  appsvc: {}
+  publicsvc: { may_import: [appsvc] }

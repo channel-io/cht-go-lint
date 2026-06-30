@@ -1,6 +1,6 @@
-# Example service (MSA) project on the node-tree model.
-# Domains live under internal/domain. Each domain has uniform layers wired
-# directionally; domains are isolated, crossing only via may_import.
+# Example service on the node-tree model, mirroring the channeltalk/msa-v2 layers
+# and directions. Domains live under internal/domain. Layers are wired per
+# msa-v2; domains are isolated and cross only through a public layer.
 module: example.com/svc
 location:
   strategy: node-tree
@@ -9,5 +9,5 @@ rules:
   dependency/import: error
 children:
   app:
-    may_import: [order]   # app may call order (through order's public surface)
+    may_import: [order]   # app may reach order (Go internal/ keeps it to order's public packages)
   order: {}
