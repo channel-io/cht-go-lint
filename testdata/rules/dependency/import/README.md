@@ -1,10 +1,12 @@
-# node-tree fixtures
+# dependency/import fixtures
 
-Example projects for the recursive node-tree location model and the
-`dependency/import` rule (RFC `docs/rfcs/2026-06-29-recursive-location-model.md`).
-Each is a self-contained repo with its own `go.mod` and real `.cht-go-lint.yaml`
-files, so the tests exercise actual config parsing, co-located discovery, tree
-assembly, and import checking — not in-memory stubs.
+Example projects for the `dependency/import` rule, which enforces the recursive
+node-tree location model (RFC `docs/rfcs/2026-06-29-recursive-location-model.md`).
+The node-tree itself is the location substrate — its own unit tests live in
+`node_tree_test.go`; these fixtures exercise the *rule* on top of it. Each is a
+self-contained repo with its own `go.mod` and real `.cht-go-lint.yaml` files, so
+the tests run actual config parsing, co-located discovery, tree assembly, and
+import checking — not in-memory stubs.
 
 | Fixture | Shows |
 |---|---|
