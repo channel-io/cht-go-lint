@@ -25,13 +25,20 @@ type Node struct {
 	Name      string           // directory segment, e.g. "consumer"
 	Path      string           // slash path from the top feature level, e.g. "kafka/consumer"
 	Parent    *Node            // nil for the root
-	Children  map[string]*Node // present ⇒ this node walls its children
+	Children  map[string]*Node // every directory on a config path, incl. auto-created intermediates
 	Shared    bool
 	MayImport []string
+
+	// Walling is true only when a config explicitly declared this node's
+	// children. Intermediate nodes auto-created to host a deeper config are NOT
+	// walling — their children carry no wall. The import rule walls a sibling
+	// pair only when their common parent is walling, so a deep config never
+	// promotes a leaf ancestor into a wall.
+	Walling bool
 }
 
-// IsWalling reports whether the node walls its children (has any declared).
-func (n *Node) IsWalling() bool { return len(n.Children) > 0 }
+// IsWalling reports whether the node walls its children (declared them explicitly).
+func (n *Node) IsWalling() bool { return n.Walling }
 
 // NodeTree is the assembled architecture tree.
 type NodeTree struct {
@@ -47,6 +54,9 @@ func BuildNodeTree(roots []string, children map[string]*NodeConfig) *NodeTree {
 }
 
 func buildChildren(parent *Node, cfgs map[string]*NodeConfig) {
+	if len(cfgs) > 0 {
+		parent.Walling = true // it explicitly declares children → walls them apart
+	}
 	for name, c := range cfgs {
 		n := &Node{
 			Name:     name,

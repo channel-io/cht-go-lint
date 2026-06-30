@@ -70,6 +70,12 @@ func importAllowed(src, tgt []*lint.Node) bool {
 	if sc == nil || tc == nil {
 		return true
 	}
+	// A wall exists only when the common parent explicitly walls its children.
+	// Intermediate nodes auto-created to host a deeper config are transparent, so
+	// a deep config never walls a leaf ancestor's branches against each other.
+	if sc.Parent == nil || !sc.Parent.Walling {
+		return true
+	}
 	if tc.Shared {
 		return true // sc lies in tc's parent subtree by construction
 	}
