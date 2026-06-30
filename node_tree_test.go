@@ -29,21 +29,24 @@ func chainPaths(nodes []*Node) string {
 
 func TestNodeTreeChain(t *testing.T) {
 	tree := sampleTree()
+	// Chain takes a directory (package) path; the caller drops any file name.
 	tests := []struct {
-		file string
+		dir  string
 		want string
 	}{
-		{"pkg/kafka/consumer/x.go", "kafka > kafka/consumer"},
-		{"pkg/kafka/consumer/pool/x.go", "kafka > kafka/consumer"}, // pool is not a node
-		{"pkg/kafka/kafka.go", "kafka"},                            // file directly under kafka
-		{"pkg/errors/errors.go", "errors"},
-		{"pkg/sqlrepo/x.go", "sqlrepo"},
-		{"other/x.go", ""}, // outside roots
+		{"pkg/kafka/consumer", "kafka > kafka/consumer"},
+		{"pkg/kafka/consumer/pool", "kafka > kafka/consumer"}, // consumer is a leaf → pool is its code
+		{"pkg/kafka", "kafka"},
+		{"pkg/errors", "errors"},
+		{"pkg/sqlrepo", "sqlrepo"},
+		{"pkg/kafka/newdir", "kafka > kafka/newdir"}, // undeclared under walling kafka → deny node
+		{"pkg/newfeature", "newfeature"},             // undeclared top-level → deny node under root
+		{"other", ""},                                // outside roots
 	}
 	for _, tt := range tests {
-		got := chainPaths(tree.Chain(tt.file))
+		got := chainPaths(tree.Chain(tt.dir))
 		if got != tt.want {
-			t.Errorf("Chain(%q) = %q, want %q", tt.file, got, tt.want)
+			t.Errorf("Chain(%q) = %q, want %q", tt.dir, got, tt.want)
 		}
 	}
 }

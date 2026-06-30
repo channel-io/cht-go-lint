@@ -80,10 +80,13 @@ func joinNodePath(parent, name string) string {
 	return parent + "/" + name
 }
 
-// Chain returns the node chain that owns a path relative to the module root.
-// The walk descends declared nodes only and stops at the first segment that is
-// not a node, so the deepest declared node owns the path (and a trailing file
-// name, which matches no child, naturally terminates the walk).
+// Chain returns the node chain that owns a directory path relative to the module
+// root. Callers pass a directory (the package), never a file name. The walk
+// descends declared nodes; when it reaches a segment that is not a declared child
+// of a **walling** node, that directory is still a node — an unnamed, deny-default
+// sibling — so it is materialised once and the walk stops (its own subdirectories
+// are its code). Under a non-walling node, an undeclared segment is just that
+// node's code and the walk stops with no extra node.
 func (t *NodeTree) Chain(relPath string) []*Node {
 	rel, ok := t.stripRoot(relPath)
 	if !ok || rel == "" {
@@ -94,6 +97,13 @@ func (t *NodeTree) Chain(relPath string) []*Node {
 	for _, seg := range strings.Split(rel, "/") {
 		next, ok := cur.Children[seg]
 		if !ok {
+			if cur.Walling {
+				chain = append(chain, &Node{
+					Name:   seg,
+					Path:   joinNodePath(cur.Path, seg),
+					Parent: cur,
+				})
+			}
 			break
 		}
 		chain = append(chain, next)

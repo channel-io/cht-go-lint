@@ -247,10 +247,12 @@ One filename everywhere: **`.cht-go-lint.yaml`**, cascading by directory (like
   `roots: [pkg]` option (carried from `flat-pkg`) tells the root node where its
   top-level feature children begin, so `pkg/kafka` and `pkg/sqlrepo` are the
   root's children rather than `pkg` being one node.
-- **Severity override:** a node's config may set a rule's severity for its own
-  subtree (cascade) — e.g. a legacy node kept at `warn` while the global default
-  is `error`. This is the per-component severity override the current tool
-  already has.
+
+Severity stays global (one setting per rule in the root `rules:`). The import
+rule needs no per-node severity knob: an exception is expressed as an **edge**
+(`may_import`) that legitimises the import, a noisy area is skipped with
+`exclude_paths`, and a whole ruleset is pulled in with `extends` — so a per-node
+severity cascade would only overlap these.
 
 **Recommendation:** small, centrally-owned repos (`go-lib`) keep everything in a
 single root file; large multi-team repos (`ch-app-store`) co-locate per feature.

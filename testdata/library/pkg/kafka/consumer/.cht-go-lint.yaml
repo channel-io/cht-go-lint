@@ -2,4 +2,5 @@
 children:
   decode: { shared: true }                 # consumer-internal common
   handler: { may_import: [decode] }
-  # pool not declared -> not a node, part of consumer's code
+  # pool is undeclared -> still a node (consumer is walling), a deny-default
+  # sibling of decode/handler. It imports only decode (shared), so it stays clean.

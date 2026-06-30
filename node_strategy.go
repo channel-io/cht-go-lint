@@ -16,9 +16,15 @@ func NewNodeTreeStrategy(tree *NodeTree) *NodeTreeStrategy {
 // Tree exposes the underlying node tree (used by the unified import rule).
 func (s *NodeTreeStrategy) Tree() *NodeTree { return s.tree }
 
-// Identify returns the location of a file path relative to the module root.
+// Identify returns the location of a file path relative to the module root. A
+// file's node is its directory's node, so the trailing file name is dropped
+// before resolving the chain.
 func (s *NodeTreeStrategy) Identify(relPath string) Location {
-	return Location{Tags: map[string]string{}, Nodes: s.tree.Chain(relPath)}
+	dir := ""
+	if i := strings.LastIndex(relPath, "/"); i >= 0 {
+		dir = relPath[:i]
+	}
+	return Location{Tags: map[string]string{}, Nodes: s.tree.Chain(dir)}
 }
 
 // ParseImport returns the location of an internal import path.
