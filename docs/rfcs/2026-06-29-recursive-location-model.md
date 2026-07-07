@@ -54,7 +54,7 @@ a minimal golangci-only config.)
 
 | Class | Items |
 |---|---|
-| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`children` / `may_import` / `shared`); the unified `dependency/import` rule. |
+| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`children` / `may_import` / `shared` / `templates`); `internal/` hoisting (transparent segment, deny-default children); the unified `dependency/import` rule. |
 | **Consolidated** | `module-isolation` + `layer-direction` + `cross-boundary` + `subdomain-isolation` → one `dependency/import` rule (4 → 1). |
 | **Dropped** | per-node `public` surface, separate `foundations` list, `isolate` flags — superseded by Go `internal/` for visibility and `shared` for broadcast. |
 | **Re-mapped** | `naming/*`, `structure/*`, `iface/*`, `ddd/*` read the node chain instead of `Component` / `Layer`. Not new rules. |
@@ -210,6 +210,32 @@ use `kafka`, the root config (their common parent) declares
 `sqlrepo: { may_import: [kafka] }` — `may_import` names siblings, so it grants
 `kafka` as a whole; Go's `internal/` decides how much of `kafka` is actually
 reachable.
+
+### Internal directories
+
+`internal/` is a **transparent path segment**, not a node. Its immediate
+subdirectories hoist to the enclosing walling node's level and become ordinary
+**deny-default** siblings of that node's other children.
+
+```text
+pkg/kafka/internal/codec/x.go
+chain: [kafka, kafka/codec]     # `internal` skipped; codec is a kafka child node
+```
+
+So inside `kafka`, a package reaches `codec` only through a declared edge —
+`consumer: { may_import: [codec] }`, or `codec: { shared: true }` for a helper the
+whole feature uses. This is the same dogma as everywhere else: **placing a config
+on `kafka` opts its whole subtree — `internal/` included — into strict
+management.** Go still enforces the *outside* invariant for free (no package
+outside `kafka` can import `kafka/internal/codec`), so cht only adds the
+*intra*-subtree edge control Go does not give. Hoisting each internal package to
+its own node is what lets a feature say "only `consumer` may use `codec`"; a
+coarser "the whole `internal/` bag is one node" could not.
+
+**Name collision.** If a hoisted `internal/x` and a real sibling `x` would both
+claim the name `x` under one walling node, that is a configuration error, reported
+by `dependency/import`; rename or move one out of `internal/`. Collisions surface
+only when both directories exist, so most repos never hit one.
 
 ### Location assignment
 
@@ -374,8 +400,12 @@ children:
 - Both may import `pkg/errors` (shared at root).
 - `kafka ⊥ sqlrepo` by default; if `sqlrepo` needs `kafka`, the **root** config
   (their common parent) declares `sqlrepo: { may_import: [kafka] }` — `may_import`
-  names siblings, so it grants `kafka` as a whole, and Go's `internal/` decides
-  how much is actually reachable (here only the non-internal `core`).
+  names siblings, so it grants `kafka` as a whole; Go's `internal/` then keeps
+  `kafka/internal/*` unreachable, so what `sqlrepo` gets is `kafka`'s non-internal
+  surface.
+- `kafka/internal/*` hoists to deny-default `kafka` children (see *Internal
+  directories*): `kafka`'s own packages reach them only through a declared edge,
+  and nothing outside `kafka` can (Go).
 
 ## Rule re-mapping (the 41 rules)
 
@@ -422,6 +452,14 @@ children:
   architecture and reduces cht-go-lint to an enriched `depguard`.
 - **Incremental within the three-axis model.** Rejected — does not fix recursion
   or the marker. (An initial component-scoped-layers PR was closed for this RFC.)
+- **A per-node `internal:` mode flag (transparent vs walled) + an A/B default
+  policy (open-by-default + `deny` list vs deny-by-default + `may_import`).**
+  Considered while settling `internal/` handling. Rejected for one uniform policy
+  — **deny-default everywhere, `may_import` to open** — with the *presence of a
+  config* as the only strict/loose toggle. Two default modes would need a mirror
+  `deny` field and force every reader to first learn which mode a level is in;
+  `internal/` needs no flag because its hoisted children are deny-default like any
+  walled sibling.
 
 ## Deferred
 

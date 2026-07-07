@@ -1,6 +1,8 @@
 package lint
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -41,6 +43,9 @@ func TestNodeTreeChain(t *testing.T) {
 		{"pkg/sqlrepo", "sqlrepo"},
 		{"pkg/kafka/newdir", "kafka > kafka/newdir"}, // undeclared under walling kafka → deny node
 		{"pkg/newfeature", "newfeature"},             // undeclared top-level → deny node under root
+		{"pkg/kafka/internal/codec", "kafka > kafka/codec"},     // internal/ skipped; codec hoists to a kafka child
+		{"pkg/kafka/internal/codec/sub", "kafka > kafka/codec"}, // codec is a leaf → sub is its code
+		{"pkg/kafka/internal", "kafka"},                         // lone internal/ is transparent → no node
 		{"other", ""},                                // outside roots
 	}
 	for _, tt := range tests {
@@ -79,5 +84,33 @@ func TestNodeTreePolicy(t *testing.T) {
 	}
 	if consumer.Path != "kafka/consumer" {
 		t.Errorf("consumer.Path = %q, want kafka/consumer", consumer.Path)
+	}
+}
+
+func TestInternalCollisions(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"pkg/kafka/codec", "pkg/kafka/internal/codec", "pkg/kafka/producer"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// kafka is walling (declares producer), so both pkg/kafka/codec and the
+	// hoisted pkg/kafka/internal/codec would claim the child name "codec".
+	tree := BuildNodeTree([]string{"pkg"}, map[string]*NodeConfig{
+		"kafka": {Children: map[string]*NodeConfig{"producer": {}}},
+	})
+
+	cols := tree.InternalCollisions(root)
+	if len(cols) != 1 || cols[0].Name != "codec" || cols[0].Node != "kafka" {
+		t.Fatalf("want one codec collision under kafka, got %+v", cols)
+	}
+
+	// No internal/ dir under a walling node → no collisions.
+	clean := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(clean, "pkg/kafka/producer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := tree.InternalCollisions(clean); len(got) != 0 {
+		t.Fatalf("want no collisions, got %+v", got)
 	}
 }

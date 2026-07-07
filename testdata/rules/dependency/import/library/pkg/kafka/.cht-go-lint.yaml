@@ -3,4 +3,4 @@ children:
   core: { shared: true }            # consumer/producer may import it
   producer: {}
   consumer:
-    may_import: [producer]          # consumer -> producer (one direction)
+    may_import: [producer, codec]   # -> producer (one direction); -> internal/codec (hoisted)

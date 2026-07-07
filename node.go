@@ -1,6 +1,11 @@
 package lint
 
-import "strings"
+import (
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 // NodeConfig is the YAML shape of a node: its policy plus its children.
 //
@@ -141,6 +146,13 @@ func (t *NodeTree) Chain(relPath string) []*Node {
 	var chain []*Node
 	cur := t.Root
 	for _, seg := range strings.Split(rel, "/") {
+		if seg == "internal" {
+			// `internal/` is a Go visibility marker, not an architecture node.
+			// Skip it transparently so its children hoist to cur's level as
+			// deny-default siblings. Go already blocks any reach from outside
+			// cur's subtree, so cht only governs the intra-subtree edges.
+			continue
+		}
 		next, ok := cur.Children[seg]
 		if !ok {
 			if cur.Walling {
@@ -168,6 +180,9 @@ func (t *NodeTree) attachNodeAt(relDir string, c *NodeConfig) {
 	}
 	cur := t.Root
 	for _, seg := range strings.Split(rel, "/") {
+		if seg == "internal" {
+			continue // transparent segment — mirrors Chain's hoisting
+		}
 		next, ok := cur.Children[seg]
 		if !ok {
 			next = &Node{
@@ -209,4 +224,87 @@ func (t *NodeTree) stripRoot(relPath string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// InternalCollision is a directory where a hoisted `internal/<name>` would claim
+// the same node name as a real sibling `<name>` under the same walling node. Both
+// map to one node, so the resolution is ambiguous — a configuration error.
+type InternalCollision struct {
+	Dir  string // the offending internal/<name> directory, relative to root (slash)
+	Name string // the clashing node name
+	Node string // logical path of the walling node the two would share
+}
+
+// InternalCollisions scans the filesystem for hoist name clashes: an `internal/`
+// directory whose child names overlap the real sibling directories under the same
+// walling node. Because `internal/` is transparent, both would resolve to a single
+// child node of that walling node. Clashes only arise when the hoisted node is
+// actually present, so most repos report none.
+func (t *NodeTree) InternalCollisions(root string) []InternalCollision {
+	var out []InternalCollision
+	if root == "" {
+		return out
+	}
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		if skipDirs[d.Name()] {
+			return filepath.SkipDir
+		}
+		if d.Name() != "internal" {
+			return nil
+		}
+		rel, e := filepath.Rel(root, filepath.Dir(path))
+		if e != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		node, ok := t.nodeForDir(rel)
+		if !ok || !node.Walling {
+			return nil // only a walling parent materialises hoisted child nodes
+		}
+		siblings := childDirSet(filepath.Dir(path))
+		delete(siblings, "internal")
+		for name := range childDirSet(path) {
+			if siblings[name] {
+				out = append(out, InternalCollision{
+					Dir:  filepath.ToSlash(filepath.Join(rel, "internal", name)),
+					Name: name,
+					Node: node.Path,
+				})
+			}
+		}
+		return nil
+	})
+	return out
+}
+
+// nodeForDir returns the deepest node owning a directory relative to the module
+// root (roots prefix included). ok is false when the directory lies outside every
+// configured root.
+func (t *NodeTree) nodeForDir(rel string) (*Node, bool) {
+	if r, ok := t.stripRoot(rel); ok && r == "" {
+		return t.Root, true
+	}
+	chain := t.Chain(rel)
+	if len(chain) == 0 {
+		return nil, false
+	}
+	return chain[len(chain)-1], true
+}
+
+// childDirSet returns the immediate subdirectory names of dir (skip set excluded).
+func childDirSet(dir string) map[string]bool {
+	set := map[string]bool{}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return set
+	}
+	for _, e := range entries {
+		if e.IsDir() && !skipDirs[e.Name()] {
+			set[e.Name()] = true
+		}
+	}
+	return set
 }

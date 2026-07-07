@@ -26,6 +26,20 @@ func (r *Import) Meta() lint.Meta {
 }
 
 func (r *Import) Check(ctx *lint.Context) error {
+	// Hoist collision scan: a real sibling <x> and a hoisted internal/<x> would
+	// claim one node name under the same walling node — an ambiguous mapping.
+	if strat, ok := ctx.Analyzer.Strategy().(*lint.NodeTreeStrategy); ok {
+		for _, c := range strat.Tree().InternalCollisions(ctx.Analyzer.Root()) {
+			ctx.Report.Add(lint.Violation{
+				Rule:     "dependency/import",
+				Severity: ctx.Severity,
+				File:     c.Dir,
+				Message: fmt.Sprintf(
+					"hoisted %q collides with real sibling %q under node %q; rename or move it out of internal/",
+					"internal/"+c.Name, c.Name, c.Node),
+			})
+		}
+	}
 	return ctx.Analyzer.WalkGoFiles(func(_ string, file *lint.ParsedFile) error {
 		src := file.Location.Nodes
 		if len(src) == 0 {
@@ -89,7 +103,10 @@ func divergence(a, b []*lint.Node) (*lint.Node, *lint.Node) {
 		n = len(b)
 	}
 	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
+		// Compare by logical path: a node undeclared in config is synthesised
+		// fresh per resolution, so two chains through the same directory hold
+		// different *Node pointers for one logical node.
+		if a[i].Path != b[i].Path {
 			return a[i], b[i]
 		}
 	}
@@ -102,7 +119,7 @@ func isPrefix(a, b []*lint.Node) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if a[i].Path != b[i].Path {
 			return false
 		}
 	}
