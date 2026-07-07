@@ -26,20 +26,6 @@ func (r *Import) Meta() lint.Meta {
 }
 
 func (r *Import) Check(ctx *lint.Context) error {
-	// Hoist collision scan: a real sibling <x> and a hoisted internal/<x> would
-	// claim one node name under the same walling node — an ambiguous mapping.
-	if strat, ok := ctx.Analyzer.Strategy().(*lint.NodeTreeStrategy); ok {
-		for _, c := range strat.Tree().InternalCollisions(ctx.Analyzer.Root()) {
-			ctx.Report.Add(lint.Violation{
-				Rule:     "dependency/import",
-				Severity: ctx.Severity,
-				File:     c.Dir,
-				Message: fmt.Sprintf(
-					"hoisted %q collides with real sibling %q under node %q; rename or move it out of internal/",
-					"internal/"+c.Name, c.Name, c.Node),
-			})
-		}
-	}
 	return ctx.Analyzer.WalkGoFiles(func(_ string, file *lint.ParsedFile) error {
 		src := file.Location.Nodes
 		if len(src) == 0 {
@@ -54,10 +40,10 @@ func (r *Import) Check(ctx *lint.Context) error {
 			if len(tgt) == 0 {
 				continue // imported package owns no node
 			}
-			if importAllowed(src, tgt) {
+			ok, sc, tc := importAllowed(src, tgt)
+			if ok {
 				continue
 			}
-			sc, tc := divergence(src, tgt)
 			ctx.Report.Add(lint.Violation{
 				Rule:     "dependency/import",
 				Severity: ctx.Severity,
@@ -71,29 +57,34 @@ func (r *Import) Check(ctx *lint.Context) error {
 	})
 }
 
-// importAllowed applies the node-tree default policy to two node chains.
-func importAllowed(src, tgt []*lint.Node) bool {
+// importAllowed applies the node-tree default policy to two node chains. When the
+// import is a violation it also returns the divergence-level sibling pair (Sc →
+// Tc) for the diagnostic; on an allowed import both are nil.
+func importAllowed(src, tgt []*lint.Node) (bool, *lint.Node, *lint.Node) {
 	// Vertical: one chain is a prefix of the other (ancestor/descendant). Always
 	// open — a node sees its own subtree and may reach up to its enclosing
 	// features.
 	if isPrefix(src, tgt) || isPrefix(tgt, src) {
-		return true
+		return true, nil, nil
 	}
 	// Horizontal: check the sibling pair at the divergence point.
 	sc, tc := divergence(src, tgt)
 	if sc == nil || tc == nil {
-		return true
+		return true, nil, nil
 	}
 	// A wall exists only when the common parent explicitly walls its children.
 	// Intermediate nodes auto-created to host a deeper config are transparent, so
 	// a deep config never walls a leaf ancestor's branches against each other.
 	if sc.Parent == nil || !sc.Parent.Walling {
-		return true
+		return true, nil, nil
 	}
 	if tc.Shared {
-		return true // sc lies in tc's parent subtree by construction
+		return true, nil, nil // sc lies in tc's parent subtree by construction
 	}
-	return contains(sc.MayImport, tc.Name)
+	if contains(sc.MayImport, tc.Name) {
+		return true, nil, nil
+	}
+	return false, sc, tc
 }
 
 // divergence returns the sibling nodes where the two chains first differ.

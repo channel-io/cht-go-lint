@@ -28,7 +28,7 @@ type ImportLocation struct {
 	Component    string
 	SubComponent string
 	Layer        string
-	IsInternal   bool // within the same module
+	IsInternal   bool // the import path contains an internal/ segment (Go visibility marker)
 	IsSameModule bool // same Go module
 
 	// Nodes is the node chain of the imported package under the node-tree

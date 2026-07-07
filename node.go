@@ -1,10 +1,16 @@
 package lint
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+)
+
+const (
+	internalSegment = "internal" // transparent path segment (a Go visibility marker, not a node)
+	templateNone    = "none"     // reserved template value: explicit opt-out
 )
 
 // NodeConfig is the YAML shape of a node: its policy plus its children.
@@ -41,29 +47,70 @@ func applyDefaultTemplate(children map[string]*NodeConfig, name string) {
 	}
 }
 
+// NodeIssue is a configuration problem found while assembling the tree — an
+// unknown or self-referential template, a co-located config that failed to parse,
+// or a hoist name collision. Surfaced as a diagnostic so a broken config fails
+// loudly instead of silently disabling enforcement.
+type NodeIssue struct {
+	Path    string // where to anchor the diagnostic (dir or config path); "" if none
+	Message string
+}
+
 // expandTemplates resolves every `template:` reference in a children tree by
-// merging the named template's children into the referencing node. Templates are
-// shared, read-only NodeConfig values, so domains can reuse one layer wiring
-// instead of repeating it. The reserved name `none` expands to nothing.
-func expandTemplates(children map[string]*NodeConfig, templates map[string]map[string]*NodeConfig) {
-	for _, c := range children {
+// merging a deep copy of the named template's children into the referencing node
+// (a node's own children win). Templates let domains reuse one layer wiring
+// instead of repeating it. The reserved name `none` expands to nothing. An unknown
+// template name and a self-referential template are recorded as issues rather than
+// being silently ignored or looping forever; `active` tracks the templates on the
+// current expansion path to detect the cycle.
+func expandTemplates(children map[string]*NodeConfig, templates map[string]map[string]*NodeConfig, active map[string]bool, issues *[]NodeIssue) {
+	for name, c := range children {
 		if c == nil {
 			continue
 		}
-		if c.Template != "" && c.Template != "none" {
-			if tmpl, ok := templates[c.Template]; ok {
+		if c.Template != "" && c.Template != templateNone {
+			switch tmpl, ok := templates[c.Template]; {
+			case !ok:
+				*issues = append(*issues, NodeIssue{Message: fmt.Sprintf("node %q references unknown template %q", name, c.Template)})
+			case active[c.Template]:
+				*issues = append(*issues, NodeIssue{Message: fmt.Sprintf("template %q is self-referential", c.Template)})
+			default:
 				if c.Children == nil {
 					c.Children = map[string]*NodeConfig{}
 				}
-				for name, tc := range tmpl {
-					if _, exists := c.Children[name]; !exists {
-						c.Children[name] = tc
+				for tn, tc := range tmpl {
+					if _, exists := c.Children[tn]; !exists {
+						c.Children[tn] = cloneNodeConfig(tc)
 					}
 				}
+				active[c.Template] = true
+				expandTemplates(c.Children, templates, active, issues)
+				delete(active, c.Template)
+				continue
 			}
 		}
-		expandTemplates(c.Children, templates)
+		expandTemplates(c.Children, templates, active, issues)
 	}
+}
+
+// cloneNodeConfig deep-copies a NodeConfig so a template's child configs are not
+// aliased into every node that references the template (a later per-node edit
+// would otherwise leak across domains).
+func cloneNodeConfig(c *NodeConfig) *NodeConfig {
+	if c == nil {
+		return nil
+	}
+	n := &NodeConfig{Shared: c.Shared, Template: c.Template}
+	if c.MayImport != nil {
+		n.MayImport = append([]string(nil), c.MayImport...)
+	}
+	if len(c.Children) > 0 {
+		n.Children = make(map[string]*NodeConfig, len(c.Children))
+		for k, v := range c.Children {
+			n.Children[k] = cloneNodeConfig(v)
+		}
+	}
+	return n
 }
 
 // Node is one directory in the architecture tree.
@@ -93,13 +140,17 @@ func (n *Node) IsWalling() bool { return n.Walling }
 
 // NodeTree is the assembled architecture tree.
 type NodeTree struct {
-	Root  *Node    // the synthetic root node (Path "")
-	Roots []string // path prefixes under which top-level nodes live, e.g. ["pkg"]
+	Root   *Node       // the synthetic root node (Path "")
+	Roots  []string    // path prefixes under which top-level nodes live, e.g. ["pkg"]
+	Issues []NodeIssue // configuration problems found while assembling (surfaced as diagnostics)
 }
 
 // BuildNodeTree assembles a tree from the root node's children.
 func BuildNodeTree(roots []string, children map[string]*NodeConfig) *NodeTree {
-	root := &Node{Children: map[string]*Node{}}
+	// The repo root is always a walling node (RFC invariant): its top-level
+	// features are isolated by default even when every node is declared in a
+	// co-located file and the root config lists no inline children.
+	root := &Node{Children: map[string]*Node{}, Walling: true}
 	buildChildren(root, children)
 	return &NodeTree{Root: root, Roots: roots}
 }
@@ -146,7 +197,7 @@ func (t *NodeTree) Chain(relPath string) []*Node {
 	var chain []*Node
 	cur := t.Root
 	for _, seg := range strings.Split(rel, "/") {
-		if seg == "internal" {
+		if seg == internalSegment {
 			// `internal/` is a Go visibility marker, not an architecture node.
 			// Skip it transparently so its children hoist to cur's level as
 			// deny-default siblings. Go already blocks any reach from outside
@@ -180,7 +231,7 @@ func (t *NodeTree) attachNodeAt(relDir string, c *NodeConfig) {
 	}
 	cur := t.Root
 	for _, seg := range strings.Split(rel, "/") {
-		if seg == "internal" {
+		if seg == internalSegment {
 			continue // transparent segment — mirrors Chain's hoisting
 		}
 		next, ok := cur.Children[seg]
@@ -240,7 +291,7 @@ type InternalCollision struct {
 // walling node. Because `internal/` is transparent, both would resolve to a single
 // child node of that walling node. Clashes only arise when the hoisted node is
 // actually present, so most repos report none.
-func (t *NodeTree) InternalCollisions(root string) []InternalCollision {
+func (t *NodeTree) InternalCollisions(root string, excludePaths []string) []InternalCollision {
 	var out []InternalCollision
 	if root == "" {
 		return out
@@ -249,10 +300,13 @@ func (t *NodeTree) InternalCollisions(root string) []InternalCollision {
 		if err != nil || !d.IsDir() {
 			return nil
 		}
+		if rel, e := filepath.Rel(root, path); e == nil && rel != "." && pathExcluded(rel, excludePaths) {
+			return filepath.SkipDir
+		}
 		if skipDirs[d.Name()] {
 			return filepath.SkipDir
 		}
-		if d.Name() != "internal" {
+		if d.Name() != internalSegment {
 			return nil
 		}
 		rel, e := filepath.Rel(root, filepath.Dir(path))
@@ -265,11 +319,11 @@ func (t *NodeTree) InternalCollisions(root string) []InternalCollision {
 			return nil // only a walling parent materialises hoisted child nodes
 		}
 		siblings := childDirSet(filepath.Dir(path))
-		delete(siblings, "internal")
+		delete(siblings, internalSegment)
 		for name := range childDirSet(path) {
 			if siblings[name] {
 				out = append(out, InternalCollision{
-					Dir:  filepath.ToSlash(filepath.Join(rel, "internal", name)),
+					Dir:  filepath.ToSlash(filepath.Join(rel, internalSegment, name)),
 					Name: name,
 					Node: node.Path,
 				})
@@ -278,6 +332,22 @@ func (t *NodeTree) InternalCollisions(root string) []InternalCollision {
 		return nil
 	})
 	return out
+}
+
+// pathExcluded reports whether a module-relative directory matches one of the
+// configured exclude_paths (same prefix semantics as CodebaseAnalyzer.IsExcluded).
+func pathExcluded(rel string, excludePaths []string) bool {
+	rel = filepath.ToSlash(rel)
+	for _, p := range excludePaths {
+		p = filepath.ToSlash(strings.TrimSuffix(p, "/"))
+		if p == "" {
+			continue
+		}
+		if rel == p || strings.HasPrefix(rel, p+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // nodeForDir returns the deepest node owning a directory relative to the module

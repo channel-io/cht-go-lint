@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -47,6 +48,15 @@ func CheckWithFix(cfg *Config, fix, dryRun bool) *Report {
 
 	// Create report
 	rpt := NewReport()
+
+	// Surface node-tree configuration problems (unknown/self-referential
+	// templates, unparseable co-located configs, hoist collisions) as errors.
+	// A broken policy file must fail loudly, not silently stop enforcing.
+	if nts, ok := strategy.(*NodeTreeStrategy); ok {
+		for _, iss := range nts.Tree().Issues {
+			rpt.Add(Violation{Rule: "node-tree/config", Severity: Error, File: iss.Path, Message: iss.Message})
+		}
+	}
 
 	// Fix phase (before check)
 	if fix {
@@ -149,9 +159,17 @@ func buildTreeFromConfig(cfg *Config) *NodeTree {
 		}
 	}
 	applyDefaultTemplate(cfg.Children, cfg.DefaultTemplate)
-	expandTemplates(cfg.Children, cfg.Templates)
+	var issues []NodeIssue
+	expandTemplates(cfg.Children, cfg.Templates, map[string]bool{}, &issues)
 	tree := BuildNodeTree(roots, cfg.Children)
-	mergeColocatedNodes(tree, cfg.Root)
+	tree.Issues = append(tree.Issues, issues...)
+	mergeColocatedNodes(tree, cfg.Root, cfg.ExcludePaths)
+	for _, c := range tree.InternalCollisions(cfg.Root, cfg.ExcludePaths) {
+		tree.Issues = append(tree.Issues, NodeIssue{
+			Path:    c.Dir,
+			Message: fmt.Sprintf("hoisted %q collides with real sibling %q under node %q; rename or move it out of internal/", internalSegment+"/"+c.Name, c.Name, c.Node),
+		})
+	}
 	return tree
 }
 

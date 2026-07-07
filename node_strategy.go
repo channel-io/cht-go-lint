@@ -42,7 +42,7 @@ func (s *NodeTreeStrategy) ParseImport(importPath, modulePath string) ImportLoca
 
 func hasInternalSegment(rel string) bool {
 	for _, seg := range strings.Split(rel, "/") {
-		if seg == "internal" {
+		if seg == internalSegment {
 			return true
 		}
 	}

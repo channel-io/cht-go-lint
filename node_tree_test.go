@@ -100,7 +100,7 @@ func TestInternalCollisions(t *testing.T) {
 		"kafka": {Children: map[string]*NodeConfig{"producer": {}}},
 	})
 
-	cols := tree.InternalCollisions(root)
+	cols := tree.InternalCollisions(root, nil)
 	if len(cols) != 1 || cols[0].Name != "codec" || cols[0].Node != "kafka" {
 		t.Fatalf("want one codec collision under kafka, got %+v", cols)
 	}
@@ -110,7 +110,7 @@ func TestInternalCollisions(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(clean, "pkg/kafka/producer"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := tree.InternalCollisions(clean); len(got) != 0 {
+	if got := tree.InternalCollisions(clean, nil); len(got) != 0 {
 		t.Fatalf("want no collisions, got %+v", got)
 	}
 }
