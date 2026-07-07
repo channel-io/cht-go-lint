@@ -41,8 +41,16 @@ func TestExampleProjects(t *testing.T) {
 // with a `// WANT-VIOLATION` comment, and nowhere else. This guards against a
 // "false clean" rule: a no-op rule would pass the clean projects but fail here.
 func TestViolationsFixture(t *testing.T) {
-	const root = "testdata/rules/dependency/import/violations"
+	base := "testdata/rules/dependency/import"
+	for _, root := range []string{base + "/violations", base + "/msa-violations"} {
+		t.Run(root, func(t *testing.T) { assertExactViolations(t, root) })
+	}
+}
 
+// assertExactViolations checks that dependency/import reports a violation at
+// exactly the `// WANT-VIOLATION` lines in root, and nowhere else.
+func assertExactViolations(t *testing.T, root string) {
+	t.Helper()
 	cfg, err := lint.LoadConfig(root)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
