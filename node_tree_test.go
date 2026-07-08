@@ -114,3 +114,45 @@ func TestInternalCollisions(t *testing.T) {
 		t.Fatalf("want no collisions, got %+v", got)
 	}
 }
+
+func TestExpandTemplatesNoneOptOut(t *testing.T) {
+	children := map[string]*NodeConfig{
+		"errs":  {Shared: true, Template: templateNone},
+		"order": {},
+	}
+	applyDefaultTemplate(children, "layers")
+	var issues []NodeIssue
+	expandTemplates(children, map[string]map[string]*NodeConfig{
+		"layers": {"model": {}, "svc": {MayImport: []string{"model"}}},
+	}, map[string]bool{}, &issues)
+
+	if len(children["errs"].Children) != 0 {
+		t.Errorf("template:none must not receive template children, got %v", children["errs"].Children)
+	}
+	if len(children["order"].Children) == 0 {
+		t.Errorf("order should have received the default layers template")
+	}
+	if len(issues) != 0 {
+		t.Errorf("no issues expected, got %v", issues)
+	}
+}
+
+func TestExpandTemplatesIndirectCycleTerminates(t *testing.T) {
+	children := map[string]*NodeConfig{"order": {Template: "a"}}
+	var issues []NodeIssue
+	// a -> b -> a: must terminate (cycle guard), not recurse forever.
+	expandTemplates(children, map[string]map[string]*NodeConfig{
+		"a": {"x": {Template: "b"}},
+		"b": {"y": {Template: "a"}},
+	}, map[string]bool{}, &issues)
+
+	found := false
+	for _, iss := range issues {
+		if strings.Contains(iss.Message, "self-referential") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a self-referential cycle issue, got %v", issues)
+	}
+}

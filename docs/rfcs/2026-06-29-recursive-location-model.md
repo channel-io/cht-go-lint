@@ -234,8 +234,9 @@ coarser "the whole `internal/` bag is one node" could not.
 
 **Name collision.** If a hoisted `internal/x` and a real sibling `x` would both
 claim the name `x` under one walling node, that is a configuration error, reported
-by `dependency/import`; rename or move one out of `internal/`. Collisions surface
-only when both directories exist, so most repos never hit one.
+as a `node-tree/config` diagnostic (see *Config validation*); rename or move one
+out of `internal/`. Collisions surface only when both directories exist, so most
+repos never hit one.
 
 ### Location assignment
 
@@ -313,6 +314,23 @@ node opts out with `template: none`, or overrides by declaring its own
 listed children winning. The wiring is enforced identically in every domain —
 global layers, expressed as ordinary node edges rather than a parallel concept.
 (See `testdata/msa`.)
+
+**Template validation.** A `template:` (or `default_template:`) that names a
+template not defined under `templates:` is a configuration error, as is a template
+that references itself directly or transitively (`a → b → a`); the latter is
+detected by a cycle guard so assembly terminates instead of looping. A template's
+child-set is **deep-copied** into each referencing node, so a per-node edit never
+leaks across the domains that share the template.
+
+### Config validation
+
+Assembly problems are surfaced as `node-tree/config` diagnostics, always at
+**error** severity and independent of the per-rule severity map — a broken policy
+file must fail loudly rather than silently drop a wall. This covers an unparseable
+or unreadable co-located `.cht-go-lint.yaml`, an unknown or self-referential
+template, a hoist name collision, and a directory that cannot be scanned. (This is
+the same "fixed rule name, always on" treatment golangci findings get; it is not
+gated by `rules:` and is not one of the architecture rules.)
 
 ### Discovery & assembly
 

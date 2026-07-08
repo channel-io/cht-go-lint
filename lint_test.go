@@ -564,7 +564,7 @@ func writeGoFile(t *testing.T, dir, relPath, content string) {
 // diagnostic whose message contains substr.
 func hasConfigError(report *lint.Report, substr string) bool {
 	for _, v := range report.Violations() {
-		if v.Rule == "node-tree/config" && strings.Contains(v.Message, substr) {
+		if v.Rule == lint.ConfigRuleName && strings.Contains(v.Message, substr) {
 			return true
 		}
 	}
@@ -615,6 +615,18 @@ func TestNodeTreeConfigErrors(t *testing.T) {
 		writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n")
 		if !hasConfigError(lint.Check(cfg), "failed to parse") {
 			t.Errorf("expected a parse-failure config error for the co-located file")
+		}
+	})
+
+	t.Run("reported even when dependency/import is off", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := base(dir)
+		cfg.Rules = map[string]lint.RuleConfig{} // dependency/import not enabled
+		cfg.Templates = map[string]map[string]*lint.NodeConfig{"layers": {"svc": {}}}
+		cfg.DefaultTemplate = "layres" // typo — must still be reported
+		cfg.Children = map[string]*lint.NodeConfig{"order": {}}
+		if !hasConfigError(lint.Check(cfg), "unknown template") {
+			t.Errorf("config errors must surface regardless of the dependency/import rule severity")
 		}
 	})
 }

@@ -22,13 +22,19 @@ func mergeColocatedNodes(tree *NodeTree, root string, excludePaths []string) {
 	}
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			// A directory that cannot be scanned would silently drop any
+			// co-located config beneath it — surface it as a diagnostic.
+			if rel, e := filepath.Rel(root, path); e == nil {
+				rel = filepath.ToSlash(rel)
+				tree.Issues = append(tree.Issues, NodeIssue{Path: rel, Message: fmt.Sprintf("failed to scan %s: %v", rel, err)})
+			}
 			return nil
 		}
 		if d.IsDir() {
 			if skipDirs[d.Name()] {
 				return filepath.SkipDir
 			}
-			if rel, e := filepath.Rel(root, path); e == nil && rel != "." && pathExcluded(rel, excludePaths) {
+			if excludedDir(root, path, excludePaths) {
 				return filepath.SkipDir
 			}
 			return nil

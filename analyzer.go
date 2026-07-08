@@ -45,13 +45,7 @@ func (a *CodebaseAnalyzer) ResetCache() {
 
 // IsExcluded checks whether a relative path should be excluded from analysis.
 func (a *CodebaseAnalyzer) IsExcluded(relPath string) bool {
-	for _, prefix := range a.excludePaths {
-		p := filepath.ToSlash(strings.TrimSuffix(prefix, "/"))
-		if relPath == p || strings.HasPrefix(relPath, p+"/") {
-			return true
-		}
-	}
-	return false
+	return pathExcluded(relPath, a.excludePaths)
 }
 
 // Root returns the project root directory.

@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+// ConfigRuleName is the rule name for node-tree configuration diagnostics
+// (unparseable co-located config, unknown/self-referential template, hoist
+// collision, unscannable directory). These are always reported at Error and are
+// not gated by the per-rule severity map — a broken policy file must fail loudly,
+// not silently stop enforcing. (Mirrors how golangci-lint uses a fixed rule name.)
+const ConfigRuleName = "node-tree/config"
+
 // Run executes architecture lint as a test, failing on errors and logging warnings.
 func Run(t *testing.T, cfg *Config) {
 	t.Helper()
@@ -54,7 +61,7 @@ func CheckWithFix(cfg *Config, fix, dryRun bool) *Report {
 	// A broken policy file must fail loudly, not silently stop enforcing.
 	if nts, ok := strategy.(*NodeTreeStrategy); ok {
 		for _, iss := range nts.Tree().Issues {
-			rpt.Add(Violation{Rule: "node-tree/config", Severity: Error, File: iss.Path, Message: iss.Message})
+			rpt.Add(Violation{Rule: ConfigRuleName, Severity: Error, File: iss.Path, Message: iss.Message})
 		}
 	}
 
@@ -149,7 +156,7 @@ func resolveStrategy(cfg *Config) LocationStrategy {
 // children merged with any co-located .cht-go-lint.yaml files under the roots.
 func buildTreeFromConfig(cfg *Config) *NodeTree {
 	roots := cfg.Roots
-	if len(roots) == 0 {
+	if len(roots) == 0 && cfg.Location != nil {
 		if v, ok := cfg.Location.Options["roots"].([]any); ok {
 			for _, r := range v {
 				if s, ok := r.(string); ok {

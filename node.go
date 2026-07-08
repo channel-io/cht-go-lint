@@ -71,9 +71,9 @@ func expandTemplates(children map[string]*NodeConfig, templates map[string]map[s
 		if c.Template != "" && c.Template != templateNone {
 			switch tmpl, ok := templates[c.Template]; {
 			case !ok:
-				*issues = append(*issues, NodeIssue{Message: fmt.Sprintf("node %q references unknown template %q", name, c.Template)})
+				*issues = append(*issues, NodeIssue{Path: name, Message: fmt.Sprintf("node %q references unknown template %q", name, c.Template)})
 			case active[c.Template]:
-				*issues = append(*issues, NodeIssue{Message: fmt.Sprintf("template %q is self-referential", c.Template)})
+				*issues = append(*issues, NodeIssue{Path: name, Message: fmt.Sprintf("node %q references self-referential template %q", name, c.Template)})
 			default:
 				if c.Children == nil {
 					c.Children = map[string]*NodeConfig{}
@@ -297,10 +297,19 @@ func (t *NodeTree) InternalCollisions(root string, excludePaths []string) []Inte
 		return out
 	}
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || !d.IsDir() {
+		if err != nil {
+			// A directory that cannot be scanned (permission, broken symlink)
+			// would silently drop any hoist collision beneath it — surface it.
+			if rel, e := filepath.Rel(root, path); e == nil {
+				rel = filepath.ToSlash(rel)
+				t.Issues = append(t.Issues, NodeIssue{Path: rel, Message: fmt.Sprintf("failed to scan %s: %v", rel, err)})
+			}
 			return nil
 		}
-		if rel, e := filepath.Rel(root, path); e == nil && rel != "." && pathExcluded(rel, excludePaths) {
+		if !d.IsDir() {
+			return nil
+		}
+		if excludedDir(root, path, excludePaths) {
 			return filepath.SkipDir
 		}
 		if skipDirs[d.Name()] {
@@ -348,6 +357,13 @@ func pathExcluded(rel string, excludePaths []string) bool {
 		}
 	}
 	return false
+}
+
+// excludedDir reports whether the directory at path (under root) is covered by
+// exclude_paths and its subtree should be skipped during a walk.
+func excludedDir(root, path string, excludePaths []string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != "." && pathExcluded(rel, excludePaths)
 }
 
 // nodeForDir returns the deepest node owning a directory relative to the module
