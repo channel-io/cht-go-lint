@@ -291,6 +291,11 @@ type InternalCollision struct {
 // walling node. Because `internal/` is transparent, both would resolve to a single
 // child node of that walling node. Clashes only arise when the hoisted node is
 // actually present, so most repos report none.
+//
+// This is a pure query: a directory that cannot be scanned is skipped silently
+// here. Scan failures are surfaced by mergeColocatedNodes, which walks the same
+// root with the same exclusions; call this alongside such a walk (as
+// buildTreeFromConfig does) or scan errors go unreported.
 func (t *NodeTree) InternalCollisions(root string, excludePaths []string) []InternalCollision {
 	var out []InternalCollision
 	if root == "" {

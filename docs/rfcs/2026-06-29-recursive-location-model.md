@@ -332,6 +332,14 @@ template, a hoist name collision, and a directory that cannot be scanned. (This 
 the same "fixed rule name, always on" treatment golangci findings get; it is not
 gated by `rules:` and is not one of the architecture rules.)
 
+Because these diagnostics carry config- and source-derived text (paths, YAML
+keys, parser errors) that can contain arbitrary bytes, every violation's
+human-readable fields are stripped of control characters at the source (when
+collected) so no line-based output — the text/GitHub formatters or `Report.String()`
+— can be tricked into emitting an injected line such as a forged CI workflow
+command. The GitHub formatter additionally percent-encodes property delimiters for
+correct `file=,line=` parsing.
+
 ### Discovery & assembly
 
 A startup phase walks the tree for `.cht-go-lint.yaml` files, merges them with

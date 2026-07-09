@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 
 	lint "github.com/channel-io/cht-go-lint"
 	_ "github.com/channel-io/cht-go-lint/rules"
@@ -564,13 +565,22 @@ func writeGoFile(t *testing.T, dir, relPath, content string) {
 // source so no formatter can emit an injected line (e.g. a forged workflow cmd).
 func TestReportSanitizesDiagnostics(t *testing.T) {
 	r := lint.NewReport()
-	r.Add(lint.Violation{File: "pkg/x\n::error::pwned", Message: "bad\r\nvalue"})
+	r.Add(lint.Violation{
+		File:     "pkg/x\n::error::pwned",
+		Message:  "bad\r\nvalue",
+		Rule:     "ru\tle",
+		Found:    "f\x1bound",
+		Expected: "e\x7fxpected",
+	})
 	v := r.Violations()[0]
-	if strings.ContainsAny(v.File, "\r\n") {
-		t.Errorf("File must have CR/LF stripped, got %q", v.File)
-	}
-	if strings.ContainsAny(v.Message, "\r\n") {
-		t.Errorf("Message must have CR/LF stripped, got %q", v.Message)
+	for name, s := range map[string]string{
+		"File": v.File, "Message": v.Message, "Rule": v.Rule, "Found": v.Found, "Expected": v.Expected,
+	} {
+		for _, c := range s {
+			if unicode.IsControl(c) {
+				t.Errorf("%s retains control char %q in %q", name, c, s)
+			}
+		}
 	}
 }
 

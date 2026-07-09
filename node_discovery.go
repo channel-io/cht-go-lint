@@ -47,6 +47,9 @@ func mergeColocatedNodes(tree *NodeTree, root string, excludePaths []string) {
 		dir := filepath.Dir(path)
 		rel, relErr := filepath.Rel(root, dir)
 		if relErr != nil {
+			// A found config that cannot be located relative to root must not be
+			// dropped silently — that would disable enforcement for its subtree.
+			tree.Issues = append(tree.Issues, NodeIssue{Path: filepath.ToSlash(dir), Message: fmt.Sprintf("failed to resolve config path %s: %v", filepath.ToSlash(path), relErr)})
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
