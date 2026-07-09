@@ -11,44 +11,28 @@ import (
 	lint "github.com/channel-io/cht-go-lint"
 )
 
-// TestExampleProjects loads the bundled clean testdata projects from their real
-// .cht-go-lint.yaml files (root + co-located) and checks each. Both are clean
-// node-tree repos, so neither may report a violation — exercising real YAML
-// parsing, co-located discovery, tree assembly, and the import rule on realistic
-// layouts:
-//
-//   - library: a heterogeneous library (pkg/ features, per-feature internals)
-//   - msa:     a service with the channeltalk/msa-v2 layers and directions
-func TestExampleProjects(t *testing.T) {
+// importFixtures are self-contained repos, one per dependency/import behavior. Each mixes
+// allowed imports (no marker — must stay clean) with blocked imports (a `// WANT-VIOLATION`
+// comment). The rule runs once per fixture and must report a violation at exactly the marked
+// lines, so a single fixture verifies both the allowed and the blocked side of its behavior.
+var importFixtures = []string{
+	"sibling-isolation",    // deny-default between features + undeclared siblings
+	"layer-direction",      // template layers: down allowed, up blocked
+	"shared-scope",         // shared by position: root-global vs feature-local
+	"internal-hoist",       // internal/ hoisted to a node, granted per sibling
+	"template-combination", // one template = layer direction AND domain isolation
+	"cross-domain-grant",   // may_import opens one domain; reverse stays blocked
+}
+
+func TestImportFixtures(t *testing.T) {
 	base := "testdata/rules/dependency/import"
-	for _, dir := range []string{base + "/library", base + "/msa"} {
-		t.Run(dir, func(t *testing.T) {
-			cfg, err := lint.LoadConfig(dir)
-			if err != nil {
-				t.Fatalf("load %s config: %v", dir, err)
-			}
-			report := lint.Check(cfg)
-			if report.ErrorCount() != 0 || report.WarningCount() != 0 {
-				t.Errorf("%s should be clean, got %d errors / %d warnings:\n%s",
-					dir, report.ErrorCount(), report.WarningCount(), report.String())
-			}
-		})
+	for _, name := range importFixtures {
+		t.Run(name, func(t *testing.T) { assertExactViolations(t, filepath.Join(base, name)) })
 	}
 }
 
-// TestViolationsFixture loads the violations fixture — a deliberately-broken project
-// — and asserts the import rule reports a violation at exactly the lines marked
-// with a `// WANT-VIOLATION` comment, and nowhere else. This guards against a
-// "false clean" rule: a no-op rule would pass the clean projects but fail here.
-func TestViolationsFixture(t *testing.T) {
-	base := "testdata/rules/dependency/import"
-	for _, root := range []string{base + "/violations", base + "/msa-violations"} {
-		t.Run(root, func(t *testing.T) { assertExactViolations(t, root) })
-	}
-}
-
-// assertExactViolations checks that dependency/import reports a violation at
-// exactly the `// WANT-VIOLATION` lines in root, and nowhere else.
+// assertExactViolations checks that dependency/import reports a violation at exactly the
+// `// WANT-VIOLATION` lines in root, and nowhere else (allowed = not reported).
 func assertExactViolations(t *testing.T, root string) {
 	t.Helper()
 	cfg, err := lint.LoadConfig(root)
@@ -81,16 +65,16 @@ func assertExactViolations(t *testing.T, root string) {
 	})
 
 	if len(want) == 0 {
-		t.Fatal("no WANT-VIOLATION markers found in fixture")
+		t.Fatalf("%s: no WANT-VIOLATION markers found in fixture", root)
 	}
 	for k := range want {
 		if !got[k] {
-			t.Errorf("expected a violation at %s but none was reported", k)
+			t.Errorf("%s: expected a violation at %s but none reported", root, k)
 		}
 	}
 	for k := range got {
 		if !want[k] {
-			t.Errorf("unexpected violation at %s", k)
+			t.Errorf("%s: unexpected violation at %s (allowed import wrongly flagged)", root, k)
 		}
 	}
 }

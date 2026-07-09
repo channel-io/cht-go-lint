@@ -1,4 +1,0 @@
-children:
-  decode: { shared: true }
-  handler: { may_import: [decode] }
-  engine: {}                          # no may_import

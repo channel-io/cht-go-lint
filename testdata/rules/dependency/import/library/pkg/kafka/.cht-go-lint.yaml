@@ -1,6 +1,0 @@
-# kafka's internal wiring, co-located with the feature.
-children:
-  core: { shared: true }            # consumer/producer may import it
-  producer: {}
-  consumer:
-    may_import: [producer, codec]   # -> producer (one direction); -> internal/codec (hoisted)

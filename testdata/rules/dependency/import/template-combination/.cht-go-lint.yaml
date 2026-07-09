@@ -1,0 +1,13 @@
+# One template enforces BOTH layer direction and domain isolation, in every domain.
+module: example.com/combo
+location: { strategy: node-tree }
+roots: [internal/domain]
+rules: { dependency/import: error }
+templates:
+  layers:
+    model: { shared: true }
+    svc: { may_import: [model] }
+default_template: layers
+children:
+  app: {}
+  order: {}

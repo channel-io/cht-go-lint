@@ -1,0 +1,14 @@
+# app may_import order (open one domain to another); the reverse stays blocked.
+module: example.com/xdom
+location: { strategy: node-tree }
+roots: [internal/domain]
+rules: { dependency/import: error }
+templates:
+  layers:
+    model: { shared: true }
+    svc: { may_import: [model] }
+    publicsvc: {}
+default_template: layers
+children:
+  app: { may_import: [order] }
+  order: {}

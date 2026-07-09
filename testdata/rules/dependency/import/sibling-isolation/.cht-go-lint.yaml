@@ -1,0 +1,11 @@
+# Sibling isolation: deny-default between top-level features and undeclared siblings.
+module: example.com/sib
+location: { strategy: node-tree }
+roots: [pkg]
+rules: { dependency/import: error }
+children:
+  sqlrepo: {}
+  kafka:
+    children:
+      producer: {}
+      consumer: { may_import: [producer] }
