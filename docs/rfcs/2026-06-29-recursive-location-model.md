@@ -313,7 +313,8 @@ node opts out with `template: none`, or overrides by declaring its own
 `children` / `template`. A template's children are merged in, with explicitly
 listed children winning. The wiring is enforced identically in every domain —
 global layers, expressed as ordinary node edges rather than a parallel concept.
-(See `testdata/msa`.)
+(See the `template-combination` / `cross-domain-grant` fixtures under
+`testdata/rules/dependency/import/`.)
 
 **Template validation.** A `template:` (or `default_template:`) that names a
 template not defined under `templates:` is a configuration error, as is a template
