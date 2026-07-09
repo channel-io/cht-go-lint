@@ -106,19 +106,49 @@ only**. If a parity test reveals node-tree cannot express an edge the legacy rul
 catches, that gap gets a minimal production fix (as with the co-located-template
 gap in PR #6) — harness first, fixes only where parity breaks.
 
-## Testing / done
+## Outcome
 
-- All four rules: clean fixture → both 0; violation fixture → identical
-  `(File, Line)` sets.
+Two of the four reproduce with full parity; two hit a genuine node-tree
+expressiveness gap.
+
+| Rule | Result |
+|------|--------|
+| `layer-direction` | full parity — `may_import` chain |
+| `subdomain-isolation` | full parity — nested walling |
+| `module-isolation` | **gap** — `public_layers` (model) cross-wall exemption |
+| `cross-boundary` | **gap** — same shape (`boundary_layer` / model / fx) |
+
+The gap: `importAllowed` decides at the divergence sibling pair and never
+descends to the deepest target, so node-tree cannot grant "one named layer is
+importable across the component wall". It over-flags the `users → orders/model`
+edge legacy permits. Documented with evidence, not silently skipped.
+
+### This slice (merge now)
+
+- `layer-direction`, `subdomain-isolation`: full parity tests, green.
+- `module-isolation`: `TestParityModuleIsolation_knownGap` — asserts the current
+  over-flag with evidence; fails (as a signal to update) once the gap is closed.
+- `cross-boundary`: same root cause, documented in the mapping doc (no separate
+  test — identical mechanism).
 - `go build ./... && go vet ./... && go test ./...` green.
 - Legacy rules and their tests untouched.
-- Mapping doc (`legacy config → node-tree config`) written for the four rules.
+
+### Next slice (design first, separate work)
+
+Close the gap with two opt-in primitives, designed properly rather than rushed:
+- `public: true` — a node importable across walls (checked at the deepest
+  target). Reproduces `public_layers` / `boundary_layer` / `allow_model_import`
+  as an explicit per-node opt-in — cleaner than the legacy blanket exemption.
+- `companion_suffix: fx` — auto-grant `N ↔ N+suffix` for the fx convention.
+
+See `docs/dependency-rule-parity-mapping.md`.
 
 ## Files
 
-- `parity_test.go` — harness + the four rules' parity tests (package `lint`).
-- `docs/.../dependency-rule-parity-mapping.md` — the translation recipe.
-- Production files touched only if a parity gap is found.
+- `parity_test.go` — harness + parity tests (package `lint_test`).
+- `docs/dependency-rule-parity-mapping.md` — the translation recipe + gap record.
+- No production files touched: node-tree already supports the reproduced edges;
+  the gap rules are deferred to the primitives above.
 
 ## PR
 
