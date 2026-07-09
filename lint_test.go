@@ -552,6 +552,44 @@ var _ = producer.Publisher{}
 	}
 }
 
+func TestNodeTreeColocatedTemplate(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// The layer template is defined at the root, but the node that stamps it
+	// lives in a co-located config — the `template:` reference must be expanded
+	// on the co-located path too, not only for root-declared children.
+	writeGoFile(t, dir, "pkg/order/.cht-go-lint.yaml", "template: layers\n")
+	writeGoFile(t, dir, "pkg/order/svc/svc.go", "package svc\n\nfunc Do() {}\n")
+	writeGoFile(t, dir, "pkg/order/model/model.go", "package model\n\ntype T struct{}\n")
+	// model importing svc is a reverse-direction violation the template forbids.
+	writeGoFile(t, dir, "pkg/order/model/bad.go",
+		"package model\n\nimport \"example.com/test/pkg/order/svc\"\n\nvar _ = svc.Do\n")
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Templates: map[string]map[string]*lint.NodeConfig{
+			"layers": {
+				"model": {Shared: true},
+				"svc":   {MayImport: []string{"model"}},
+			},
+		},
+		Children: map[string]*lint.NodeConfig{"order": {}}, // layer wiring comes from the co-located template
+		Rules:    map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+
+	report := lint.Check(cfg)
+	// model -> svc reverse = 1. If the co-located template is silently dropped,
+	// order has no children, svc/model are not walled, and this is 0.
+	if report.ErrorCount() != 1 {
+		t.Errorf("co-located template should catch the reverse import (want 1), got %d:\n%s",
+			report.ErrorCount(), report.String())
+	}
+}
+
 func writeGoFile(t *testing.T, dir, relPath, content string) {
 	t.Helper()
 	full := filepath.Join(dir, relPath)

@@ -34,7 +34,13 @@ func (s *NodeTreeStrategy) ParseImport(importPath, modulePath string) ImportLoca
 		return iloc
 	}
 	iloc.IsSameModule = true
-	rel := strings.TrimPrefix(importPath, modulePath+"/")
+	// importPath == modulePath means the module-root package itself; its rel is
+	// empty. TrimPrefix would leave the full path intact (no trailing slash to
+	// match), so special-case it to avoid feeding a bogus rel to Chain.
+	rel := ""
+	if importPath != modulePath {
+		rel = strings.TrimPrefix(importPath, modulePath+"/")
+	}
 	iloc.Nodes = s.tree.Chain(rel)
 	iloc.IsInternal = hasInternalSegment(rel)
 	return iloc

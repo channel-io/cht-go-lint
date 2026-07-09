@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -16,7 +17,12 @@ import (
 // the tree. A co-located file that cannot be read or parsed is recorded as a tree
 // issue (surfaced as a diagnostic) rather than silently dropped — a broken policy
 // file must not quietly disable enforcement for its subtree.
-func mergeColocatedNodes(tree *NodeTree, root string, excludePaths []string) {
+//
+// A `template:` reference in a co-located file is expanded against the same
+// root-level templates as inline children, so co-located nodes stamp layer
+// wiring exactly like root-declared ones. (default_template is only applied to
+// root children; co-located nodes must reference their template explicitly.)
+func mergeColocatedNodes(tree *NodeTree, root string, excludePaths []string, templates map[string]map[string]*NodeConfig) {
 	if root == "" {
 		return
 	}
@@ -67,6 +73,15 @@ func mergeColocatedNodes(tree *NodeTree, root string, excludePaths []string) {
 			tree.Issues = append(tree.Issues, NodeIssue{Path: rel, Message: fmt.Sprintf("failed to parse %s: %v", configPath, err)})
 			return nil
 		}
+		// Expand any `template:` reference before attaching. Key the node by its
+		// own directory name so template-resolution issues report a useful path.
+		name := rel
+		if i := strings.LastIndex(rel, "/"); i >= 0 {
+			name = rel[i+1:]
+		}
+		var issues []NodeIssue
+		expandTemplates(map[string]*NodeConfig{name: &nc}, templates, map[string]bool{}, &issues)
+		tree.Issues = append(tree.Issues, issues...)
 		tree.attachNodeAt(rel, &nc)
 		return nil
 	})

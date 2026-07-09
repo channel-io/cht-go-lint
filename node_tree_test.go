@@ -195,3 +195,39 @@ func TestCloneNodeConfigIsolation(t *testing.T) {
 		t.Errorf("template child-set must be deep-copied per node; payment leaked: %q", got)
 	}
 }
+
+func TestNodeTreeStrategyParseImport(t *testing.T) {
+	// No roots configured: the module root maps directly onto the node tree.
+	// The bug only surfaces here — with roots, stripRoot filters the bogus rel
+	// out anyway, masking it.
+	tree := BuildNodeTree(nil, map[string]*NodeConfig{
+		"kafka": {Children: map[string]*NodeConfig{"producer": {}}},
+	})
+	s := NewNodeTreeStrategy(tree)
+	const mod = "example.com/test"
+
+	tests := []struct {
+		name       string
+		importPath string
+		wantSame   bool
+		wantChain  string
+	}{
+		// importPath == modulePath is the module-root package itself; its rel is
+		// empty, so it resolves to no node chain — not a bogus chain built from
+		// the module path's own segments.
+		{"module root package", mod, true, ""},
+		{"in-module package", mod + "/kafka/producer", true, "kafka > kafka/producer"},
+		{"out-of-module", "other.com/lib", false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.ParseImport(tt.importPath, mod)
+			if got.IsSameModule != tt.wantSame {
+				t.Errorf("IsSameModule = %v, want %v", got.IsSameModule, tt.wantSame)
+			}
+			if chain := chainPaths(got.Nodes); chain != tt.wantChain {
+				t.Errorf("Nodes = %q, want %q", chain, tt.wantChain)
+			}
+		})
+	}
+}

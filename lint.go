@@ -170,7 +170,7 @@ func buildTreeFromConfig(cfg *Config) *NodeTree {
 	expandTemplates(cfg.Children, cfg.Templates, map[string]bool{}, &issues)
 	tree := BuildNodeTree(roots, cfg.Children)
 	tree.Issues = append(tree.Issues, issues...)
-	mergeColocatedNodes(tree, cfg.Root, cfg.ExcludePaths)
+	mergeColocatedNodes(tree, cfg.Root, cfg.ExcludePaths, cfg.Templates)
 	for _, c := range tree.InternalCollisions(cfg.Root, cfg.ExcludePaths) {
 		tree.Issues = append(tree.Issues, NodeIssue{
 			Path:    c.Dir,
