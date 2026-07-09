@@ -560,6 +560,49 @@ func writeGoFile(t *testing.T, dir, relPath, content string) {
 	}
 }
 
+// Control chars in a config-derived File/Message must be neutralized at the
+// source so no formatter can emit an injected line (e.g. a forged workflow cmd).
+func TestReportSanitizesDiagnostics(t *testing.T) {
+	r := lint.NewReport()
+	r.Add(lint.Violation{File: "pkg/x\n::error::pwned", Message: "bad\r\nvalue"})
+	v := r.Violations()[0]
+	if strings.ContainsAny(v.File, "\r\n") {
+		t.Errorf("File must have CR/LF stripped, got %q", v.File)
+	}
+	if strings.ContainsAny(v.Message, "\r\n") {
+		t.Errorf("Message must have CR/LF stripped, got %q", v.Message)
+	}
+}
+
+// An unreadable directory must surface a node-tree/config error, not be silently
+// skipped (a scan failure is an enforcement gap).
+func TestNodeTreeUnscannableDirReported(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("chmod-based unreadable dir does not apply to root")
+	}
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+	writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n")
+	locked := filepath.Join(dir, "pkg", "locked")
+	if err := os.MkdirAll(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(locked, 0o755) // let TempDir cleanup remove it
+
+	cfg := &lint.Config{
+		Root: dir, ModulePath: "example.com/test", Roots: []string{"pkg"},
+		Location: &lint.LocationConfig{Strategy: "node-tree"},
+		Children: map[string]*lint.NodeConfig{"kafka": {Children: map[string]*lint.NodeConfig{"producer": {}}}},
+		Rules:    map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+	if !hasConfigError(lint.Check(cfg), "failed to scan") {
+		t.Errorf("an unscannable directory must surface a node-tree/config error")
+	}
+}
+
 // hasConfigError reports whether the report contains a node-tree/config
 // diagnostic whose message contains substr.
 func hasConfigError(report *lint.Report, substr string) bool {

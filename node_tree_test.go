@@ -132,6 +132,9 @@ func TestExpandTemplatesNoneOptOut(t *testing.T) {
 	if len(children["order"].Children) == 0 {
 		t.Errorf("order should have received the default layers template")
 	}
+	if svc := children["order"].Children["svc"]; svc == nil || len(svc.MayImport) != 1 || svc.MayImport[0] != "model" {
+		t.Errorf("order.svc should carry may_import [model] from the template, got %+v", svc)
+	}
 	if len(issues) != 0 {
 		t.Errorf("no issues expected, got %v", issues)
 	}
@@ -154,5 +157,41 @@ func TestExpandTemplatesIndirectCycleTerminates(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a self-referential cycle issue, got %v", issues)
+	}
+}
+
+func TestPathExcludedBoundary(t *testing.T) {
+	tests := []struct {
+		rel      string
+		excludes []string
+		want     bool
+	}{
+		{"pkg/kafka", []string{"pkg/kafka"}, true},
+		{"pkg/kafka/producer", []string{"pkg/kafka"}, true},
+		{"pkg/kafka2", []string{"pkg/kafka"}, false},        // similar name, not a segment prefix
+		{"pkg/kafka/producer", []string{"pkg/kafka/"}, true}, // trailing slash normalized
+		{"pkg/kafka", nil, false},
+	}
+	for _, tt := range tests {
+		if got := pathExcluded(tt.rel, tt.excludes); got != tt.want {
+			t.Errorf("pathExcluded(%q, %v) = %v, want %v", tt.rel, tt.excludes, got, tt.want)
+		}
+	}
+}
+
+func TestCloneNodeConfigIsolation(t *testing.T) {
+	children := map[string]*NodeConfig{
+		"order":   {Template: "layers"},
+		"payment": {Template: "layers"},
+	}
+	var issues []NodeIssue
+	expandTemplates(children, map[string]map[string]*NodeConfig{
+		"layers": {"svc": {MayImport: []string{"model"}}},
+	}, map[string]bool{}, &issues)
+
+	// Mutating order's expanded template child must not leak to payment's.
+	children["order"].Children["svc"].MayImport[0] = "MUTATED"
+	if got := children["payment"].Children["svc"].MayImport[0]; got != "model" {
+		t.Errorf("template child-set must be deep-copied per node; payment leaked: %q", got)
 	}
 }

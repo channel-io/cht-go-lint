@@ -24,10 +24,12 @@ func mergeColocatedNodes(tree *NodeTree, root string, excludePaths []string) {
 		if err != nil {
 			// A directory that cannot be scanned would silently drop any
 			// co-located config beneath it — surface it as a diagnostic.
-			if rel, e := filepath.Rel(root, path); e == nil {
-				rel = filepath.ToSlash(rel)
-				tree.Issues = append(tree.Issues, NodeIssue{Path: rel, Message: fmt.Sprintf("failed to scan %s: %v", rel, err)})
+			rel, e := filepath.Rel(root, path)
+			if e != nil {
+				rel = path // fall back so the scan error is never dropped
 			}
+			rel = filepath.ToSlash(rel)
+			tree.Issues = append(tree.Issues, NodeIssue{Path: rel, Message: fmt.Sprintf("failed to scan %s: %v", rel, err)})
 			return nil
 		}
 		if d.IsDir() {

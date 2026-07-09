@@ -298,12 +298,9 @@ func (t *NodeTree) InternalCollisions(root string, excludePaths []string) []Inte
 	}
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// A directory that cannot be scanned (permission, broken symlink)
-			// would silently drop any hoist collision beneath it — surface it.
-			if rel, e := filepath.Rel(root, path); e == nil {
-				rel = filepath.ToSlash(rel)
-				t.Issues = append(t.Issues, NodeIssue{Path: rel, Message: fmt.Sprintf("failed to scan %s: %v", rel, err)})
-			}
+			// Scan failures are surfaced by mergeColocatedNodes, which walks the
+			// same tree; keep this a pure query so re-invoking it is idempotent
+			// and the diagnostic is not emitted twice.
 			return nil
 		}
 		if !d.IsDir() {
