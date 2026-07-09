@@ -145,7 +145,15 @@ func TestParityLayerDirection(t *testing.T) {
 // deliberately NOT an assertParity call. When the cross-wall-public primitive
 // (`public: true`) lands, node-tree will stop flagging the model edge and this
 // test will fail — that failure is the signal to convert it to a real parity
-// test and update the mapping doc.
+// test.
+//
+// Closing the gap (next slice, design first) needs two opt-in primitives:
+//   - `public: true` on a node — importable across walls, decided at the deepest
+//     target rather than the divergence sibling. Reproduces public_layers /
+//     boundary_layer / allow_model_import as an explicit per-node opt-in.
+//   - `companion_suffix: fx` — auto-grant N <-> N+suffix for the fx-companion
+//     convention (cross-boundary's Xfx pairing). A template {self} variable does
+//     not solve this: stamping creates children, not per-node siblings.
 func TestParityModuleIsolation_knownGap(t *testing.T) {
 	dir := t.TempDir()
 	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
