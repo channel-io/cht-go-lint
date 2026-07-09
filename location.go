@@ -17,6 +17,10 @@ type Location struct {
 	SubComponent string            // sub-module/subdomain (e.g., "channel", "membership")
 	Layer        string            // architectural layer (e.g., "model", "repo", "svc")
 	Tags         map[string]string // extensible metadata (e.g., "isAlias": "true")
+
+	// Nodes is the node chain (root→deepest) under the recursive node-tree
+	// strategy. nil for the legacy flat-pkg / nested-domain strategies.
+	Nodes []*Node
 }
 
 // ImportLocation represents the architectural position derived from an import path.
@@ -24,8 +28,12 @@ type ImportLocation struct {
 	Component    string
 	SubComponent string
 	Layer        string
-	IsInternal   bool // within the same module
+	IsInternal   bool // the import path contains an internal/ segment (Go visibility marker)
 	IsSameModule bool // same Go module
+
+	// Nodes is the node chain of the imported package under the node-tree
+	// strategy. nil for the legacy strategies.
+	Nodes []*Node
 }
 
 // HasComponent returns true if a component is set.

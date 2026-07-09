@@ -1,9 +1,17 @@
 package lint
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 )
+
+// ConfigRuleName is the rule name for node-tree configuration diagnostics
+// (unparseable co-located config, unknown/self-referential template, hoist
+// collision, unscannable directory). These are always reported at Error and are
+// not gated by the per-rule severity map — a broken policy file must fail loudly,
+// not silently stop enforcing. (Mirrors how golangci-lint uses a fixed rule name.)
+const ConfigRuleName = "node-tree/config"
 
 // Run executes architecture lint as a test, failing on errors and logging warnings.
 func Run(t *testing.T, cfg *Config) {
@@ -47,6 +55,15 @@ func CheckWithFix(cfg *Config, fix, dryRun bool) *Report {
 
 	// Create report
 	rpt := NewReport()
+
+	// Surface node-tree configuration problems (unknown/self-referential
+	// templates, unparseable co-located configs, hoist collisions) as errors.
+	// A broken policy file must fail loudly, not silently stop enforcing.
+	if nts, ok := strategy.(*NodeTreeStrategy); ok {
+		for _, iss := range nts.Tree().Issues {
+			rpt.Add(Violation{Rule: ConfigRuleName, Severity: Error, File: iss.Path, Message: iss.Message})
+		}
+	}
 
 	// Fix phase (before check)
 	if fix {
@@ -128,9 +145,39 @@ func resolveStrategy(cfg *Config) LocationStrategy {
 		return NewNestedDomainStrategy(cfg)
 	case "flat-pkg":
 		return NewFlatPkgStrategy(cfg)
+	case "node-tree":
+		return NewNodeTreeStrategy(buildTreeFromConfig(cfg))
 	default:
 		return nil
 	}
+}
+
+// buildTreeFromConfig assembles the node tree from the root config's inline
+// children merged with any co-located .cht-go-lint.yaml files under the roots.
+func buildTreeFromConfig(cfg *Config) *NodeTree {
+	roots := cfg.Roots
+	if len(roots) == 0 && cfg.Location != nil {
+		if v, ok := cfg.Location.Options["roots"].([]any); ok {
+			for _, r := range v {
+				if s, ok := r.(string); ok {
+					roots = append(roots, s)
+				}
+			}
+		}
+	}
+	applyDefaultTemplate(cfg.Children, cfg.DefaultTemplate)
+	var issues []NodeIssue
+	expandTemplates(cfg.Children, cfg.Templates, map[string]bool{}, &issues)
+	tree := BuildNodeTree(roots, cfg.Children)
+	tree.Issues = append(tree.Issues, issues...)
+	mergeColocatedNodes(tree, cfg.Root, cfg.ExcludePaths, cfg.Templates)
+	for _, c := range tree.InternalCollisions(cfg.Root, cfg.ExcludePaths) {
+		tree.Issues = append(tree.Issues, NodeIssue{
+			Path:    c.Dir,
+			Message: fmt.Sprintf("hoisted %q collides with real sibling %q under node %q; rename or move it out of internal/", internalSegment+"/"+c.Name, c.Name, c.Node),
+		})
+	}
+	return tree
 }
 
 func tierSatisfied(tier Tier, cfg *Config) bool {

@@ -1,0 +1,13 @@
+# shared scope by position: errs (root) importable everywhere; kafka/core shared only within kafka.
+module: example.com/shared
+location: { strategy: node-tree }
+roots: [pkg]
+rules: { dependency/import: error }
+children:
+  errs: { shared: true }
+  sqlrepo: {}
+  kafka:
+    children:
+      core: { shared: true }
+      producer: {}
+      consumer: {}

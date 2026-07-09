@@ -3,7 +3,9 @@ package lint_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode"
 
 	lint "github.com/channel-io/cht-go-lint"
 	_ "github.com/channel-io/cht-go-lint/rules"
@@ -22,7 +24,7 @@ func TestRuleRegistration(t *testing.T) {
 	}
 
 	expected := map[string]int{
-		"dependency": 11,
+		"dependency": 12,
 		"naming":     8,
 		"interface":  5,
 		"structure":  9,
@@ -368,11 +370,408 @@ func TestPresetMerge(t *testing.T) {
 	}
 }
 
+func TestNodeTreeImportRule(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	writeGoFile(t, dir, "pkg/kafka/core/core.go", "package core\n\ntype Record struct{}\n")
+	writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n\ntype Publisher struct{}\n")
+	// consumer → producer (allowed) + core (shared, allowed)
+	writeGoFile(t, dir, "pkg/kafka/consumer/consumer.go", `package consumer
+
+import (
+	"example.com/test/pkg/kafka/producer"
+	"example.com/test/pkg/kafka/core"
+)
+
+type Subscriber struct {
+	_ producer.Publisher
+	_ core.Record
+}
+`)
+	// producer → consumer (reverse, violation)
+	writeGoFile(t, dir, "pkg/kafka/producer/bad.go", `package producer
+
+import "example.com/test/pkg/kafka/consumer"
+
+var _ = consumer.Subscriber{}
+`)
+	// consumer → sqlrepo (cross-feature, violation)
+	writeGoFile(t, dir, "pkg/kafka/consumer/cross.go", `package consumer
+
+import "example.com/test/pkg/sqlrepo"
+
+var _ = sqlrepo.DB{}
+`)
+	writeGoFile(t, dir, "pkg/sqlrepo/sqlrepo.go", "package sqlrepo\n\ntype DB struct{}\n")
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Children: map[string]*lint.NodeConfig{
+			"sqlrepo": {},
+			"kafka": {
+				Children: map[string]*lint.NodeConfig{
+					"core":     {Shared: true},
+					"producer": {},
+					"consumer": {MayImport: []string{"producer"}},
+				},
+			},
+		},
+		Rules: map[string]lint.RuleConfig{
+			"dependency/import": {Severity: lint.Error},
+		},
+	}
+
+	report := lint.Check(cfg)
+	// Two violations: producer→consumer (reverse) and consumer→sqlrepo (cross-feature).
+	// consumer→producer (may_import) and consumer→core (shared) are allowed.
+	if report.ErrorCount() != 2 {
+		t.Errorf("expected 2 errors, got %d:\n%s", report.ErrorCount(), report.String())
+	}
+}
+
+func TestNodeTreeGlobalLayerTemplate(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// One layer template, applied to two domains. A reverse-direction import
+	// (model importing svc) must be caught in BOTH domains from the single
+	// template definition — i.e. the layer rule is global, domain-agnostic.
+	for _, d := range []string{"app", "order"} {
+		writeGoFile(t, dir, "internal/"+d+"/svc/svc.go", "package svc\n\nfunc Do() {}\n")
+		writeGoFile(t, dir, "internal/"+d+"/model/model.go", "package model\n\ntype T struct{}\n")
+		writeGoFile(t, dir, "internal/"+d+"/model/bad.go",
+			"package model\n\nimport \"example.com/test/internal/"+d+"/svc\"\n\nvar _ = svc.Do\n")
+	}
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"internal"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Templates: map[string]map[string]*lint.NodeConfig{
+			"layers": {
+				"model": {Shared: true},
+				"svc":   {MayImport: []string{"model"}},
+			},
+		},
+		DefaultTemplate: "layers", // applied to every domain without per-domain repetition
+		Children: map[string]*lint.NodeConfig{
+			"app":   {},
+			"order": {},
+		},
+		Rules: map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+
+	report := lint.Check(cfg)
+	// model -> svc reverse, once per domain = 2.
+	if report.ErrorCount() != 2 {
+		t.Errorf("global layer template should catch the reverse import in both domains (want 2), got %d:\n%s",
+			report.ErrorCount(), report.String())
+	}
+}
+
+func TestNodeTreeLeafAncestorTransparent(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// A is declared but is a leaf (no children of its own). Two deep branches
+	// each carry a co-located config, so x and y are auto-created intermediates.
+	// Because A does not wall, x and y must NOT be walled against each other.
+	writeGoFile(t, dir, "pkg/a/x/feat1/.cht-go-lint.yaml", "children:\n  thing: {}\n")
+	writeGoFile(t, dir, "pkg/a/y/feat2/.cht-go-lint.yaml", "children:\n  thing: {}\n")
+	writeGoFile(t, dir, "pkg/a/y/feat2/feat2.go", "package feat2\n\ntype T struct{}\n")
+	writeGoFile(t, dir, "pkg/a/x/feat1/feat1.go", `package feat1
+
+import "example.com/test/pkg/a/y/feat2"
+
+var _ = feat2.T{}
+`)
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Children:   map[string]*lint.NodeConfig{"a": {}}, // a is a leaf
+		Rules:      map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+
+	report := lint.Check(cfg)
+	if report.ErrorCount() != 0 {
+		t.Errorf("leaf ancestor must not wall its deep branches, got %d:\n%s",
+			report.ErrorCount(), report.String())
+	}
+}
+
+func TestNodeTreeColocated(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// kafka's internal wiring lives in a co-located config, not the root.
+	writeGoFile(t, dir, "pkg/kafka/.cht-go-lint.yaml", `children:
+  producer: {}
+  consumer:
+    may_import: [producer]
+`)
+	writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n\ntype Publisher struct{}\n")
+	// reverse — violation
+	writeGoFile(t, dir, "pkg/kafka/producer/bad.go", `package producer
+
+import "example.com/test/pkg/kafka/consumer"
+
+func bad() any { return consumer.X }
+`)
+	writeGoFile(t, dir, "pkg/kafka/consumer/consumer.go", `package consumer
+
+import "example.com/test/pkg/kafka/producer"
+
+var X = 1
+var _ = producer.Publisher{}
+`)
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Children:   map[string]*lint.NodeConfig{"kafka": {}}, // children come from the co-located file
+		Rules: map[string]lint.RuleConfig{
+			"dependency/import": {Severity: lint.Error},
+		},
+	}
+
+	report := lint.Check(cfg)
+	// Only producer→consumer (reverse) violates; consumer→producer is allowed by
+	// the co-located may_import.
+	if report.ErrorCount() != 1 {
+		t.Errorf("expected 1 error, got %d:\n%s", report.ErrorCount(), report.String())
+	}
+}
+
+func TestNodeTreeColocatedTemplate(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+
+	// The layer template is defined at the root, but the node that stamps it
+	// lives in a co-located config — the `template:` reference must be expanded
+	// on the co-located path too, not only for root-declared children.
+	writeGoFile(t, dir, "pkg/order/.cht-go-lint.yaml", "template: layers\n")
+	writeGoFile(t, dir, "pkg/order/svc/svc.go", "package svc\n\nfunc Do() {}\n")
+	writeGoFile(t, dir, "pkg/order/model/model.go", "package model\n\ntype T struct{}\n")
+	// model importing svc is a reverse-direction violation the template forbids.
+	writeGoFile(t, dir, "pkg/order/model/bad.go",
+		"package model\n\nimport \"example.com/test/pkg/order/svc\"\n\nvar _ = svc.Do\n")
+
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Templates: map[string]map[string]*lint.NodeConfig{
+			"layers": {
+				"model": {Shared: true},
+				"svc":   {MayImport: []string{"model"}},
+			},
+		},
+		Children: map[string]*lint.NodeConfig{"order": {}}, // layer wiring comes from the co-located template
+		Rules:    map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+
+	report := lint.Check(cfg)
+	// model -> svc reverse = 1. If the co-located template is silently dropped,
+	// order has no children, svc/model are not walled, and this is 0.
+	if report.ErrorCount() != 1 {
+		t.Errorf("co-located template should catch the reverse import (want 1), got %d:\n%s",
+			report.ErrorCount(), report.String())
+	}
+}
+
 func writeGoFile(t *testing.T, dir, relPath, content string) {
 	t.Helper()
 	full := filepath.Join(dir, relPath)
 	os.MkdirAll(filepath.Dir(full), 0755)
 	if err := os.WriteFile(full, []byte(content), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Control chars in a config-derived File/Message must be neutralized at the
+// source so no formatter can emit an injected line (e.g. a forged workflow cmd).
+func TestReportSanitizesDiagnostics(t *testing.T) {
+	r := lint.NewReport()
+	r.Add(lint.Violation{
+		File:     "pkg/x\n::error::pwned",
+		Message:  "bad\r\nvalue",
+		Rule:     "ru\tle",
+		Found:    "f\x1bound",
+		Expected: "e\x7fxpected",
+	})
+	v := r.Violations()[0]
+	for name, s := range map[string]string{
+		"File": v.File, "Message": v.Message, "Rule": v.Rule, "Found": v.Found, "Expected": v.Expected,
+	} {
+		for _, c := range s {
+			if unicode.IsControl(c) {
+				t.Errorf("%s retains control char %q in %q", name, c, s)
+			}
+		}
+	}
+}
+
+// An unreadable directory must surface a node-tree/config error, not be silently
+// skipped (a scan failure is an enforcement gap).
+func TestNodeTreeUnscannableDirReported(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("chmod-based unreadable dir does not apply to root")
+	}
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+	writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n")
+	locked := filepath.Join(dir, "pkg", "locked")
+	if err := os.MkdirAll(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(locked, 0o755) // let TempDir cleanup remove it
+
+	cfg := &lint.Config{
+		Root: dir, ModulePath: "example.com/test", Roots: []string{"pkg"},
+		Location: &lint.LocationConfig{Strategy: "node-tree"},
+		Children: map[string]*lint.NodeConfig{"kafka": {Children: map[string]*lint.NodeConfig{"producer": {}}}},
+		Rules:    map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+	if !hasConfigError(lint.Check(cfg), "failed to scan") {
+		t.Errorf("an unscannable directory must surface a node-tree/config error")
+	}
+}
+
+// hasConfigError reports whether the report contains a node-tree/config
+// diagnostic whose message contains substr.
+func hasConfigError(report *lint.Report, substr string) bool {
+	for _, v := range report.Violations() {
+		if v.Rule == lint.ConfigRuleName && strings.Contains(v.Message, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// A broken node-tree config must fail loudly (a node-tree/config error), not
+// silently drop the wall for its subtree.
+func TestNodeTreeConfigErrors(t *testing.T) {
+	base := func(dir string) *lint.Config {
+		writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+		return &lint.Config{
+			Root:       dir,
+			ModulePath: "example.com/test",
+			Roots:      []string{"pkg"},
+			Location:   &lint.LocationConfig{Strategy: "node-tree"},
+			Rules:      map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+		}
+	}
+
+	t.Run("unknown template (incl. default_template typo)", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := base(dir)
+		cfg.Templates = map[string]map[string]*lint.NodeConfig{"layers": {"svc": {}}}
+		cfg.DefaultTemplate = "layres" // typo — no such template
+		cfg.Children = map[string]*lint.NodeConfig{"order": {}}
+		if !hasConfigError(lint.Check(cfg), "unknown template") {
+			t.Errorf("expected an unknown-template config error")
+		}
+	})
+
+	t.Run("self-referential template terminates", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := base(dir)
+		cfg.Templates = map[string]map[string]*lint.NodeConfig{"selfref": {"x": {Template: "selfref"}}}
+		cfg.Children = map[string]*lint.NodeConfig{"order": {Template: "selfref"}}
+		// Must return (cycle guard), not stack-overflow / hang.
+		if !hasConfigError(lint.Check(cfg), "self-referential") {
+			t.Errorf("expected a self-referential-template config error")
+		}
+	})
+
+	t.Run("unparseable co-located config", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := base(dir)
+		cfg.Children = map[string]*lint.NodeConfig{"kafka": {}}
+		writeGoFile(t, dir, "pkg/kafka/.cht-go-lint.yaml", "children: [unterminated\n")
+		writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n")
+		if !hasConfigError(lint.Check(cfg), "failed to parse") {
+			t.Errorf("expected a parse-failure config error for the co-located file")
+		}
+	})
+
+	t.Run("reported even when dependency/import is off", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := base(dir)
+		cfg.Rules = map[string]lint.RuleConfig{} // dependency/import not enabled
+		cfg.Templates = map[string]map[string]*lint.NodeConfig{"layers": {"svc": {}}}
+		cfg.DefaultTemplate = "layres" // typo — must still be reported
+		cfg.Children = map[string]*lint.NodeConfig{"order": {}}
+		if !hasConfigError(lint.Check(cfg), "unknown template") {
+			t.Errorf("config errors must surface regardless of the dependency/import rule severity")
+		}
+	})
+}
+
+// The repo root is always walling: top-level features must be isolated even when
+// the root config declares no inline children and everything is co-located.
+func TestNodeTreeRootAlwaysWalls(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+	writeGoFile(t, dir, "pkg/a/.cht-go-lint.yaml", "children:\n  x: {}\n")
+	writeGoFile(t, dir, "pkg/b/.cht-go-lint.yaml", "children:\n  y: {}\n")
+	writeGoFile(t, dir, "pkg/b/y/y.go", "package y\n\ntype T struct{}\n")
+	writeGoFile(t, dir, "pkg/a/x/x.go", `package x
+
+import "example.com/test/pkg/b/y"
+
+var _ = y.T{}
+`)
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"}, // no inline Children
+		Rules:      map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+	if lint.Check(cfg).ErrorCount() == 0 {
+		t.Errorf("top-level a and b must be walled even with no inline root children")
+	}
+}
+
+// A real sibling <x> colliding with a hoisted internal/<x> is reported end-to-end
+// through Check, and honoring exclude_paths suppresses the scan.
+func TestNodeTreeCollisionReported(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
+	writeGoFile(t, dir, "pkg/kafka/codec/codec.go", "package codec\n\ntype A struct{}\n")
+	writeGoFile(t, dir, "pkg/kafka/internal/codec/codec.go", "package codec\n\ntype B struct{}\n")
+	writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n")
+	cfg := &lint.Config{
+		Root:       dir,
+		ModulePath: "example.com/test",
+		Roots:      []string{"pkg"},
+		Location:   &lint.LocationConfig{Strategy: "node-tree"},
+		Children: map[string]*lint.NodeConfig{
+			"kafka": {Children: map[string]*lint.NodeConfig{"producer": {}}},
+		},
+		Rules: map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
+	}
+	if !hasConfigError(lint.Check(cfg), "collides with real sibling") {
+		t.Errorf("expected a hoist-collision config error")
+	}
+
+	cfg.ExcludePaths = []string{"pkg/kafka"}
+	if hasConfigError(lint.Check(cfg), "collides") {
+		t.Errorf("excluded path must not be scanned for collisions")
 	}
 }

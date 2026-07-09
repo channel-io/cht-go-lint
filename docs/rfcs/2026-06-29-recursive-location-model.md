@@ -54,7 +54,7 @@ a minimal golangci-only config.)
 
 | Class | Items |
 |---|---|
-| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`children` / `may_import` / `shared`); the unified `dependency/import` rule. |
+| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`children` / `may_import` / `shared` / `templates`); `internal/` hoisting (transparent segment, deny-default children); the unified `dependency/import` rule. |
 | **Consolidated** | `module-isolation` + `layer-direction` + `cross-boundary` + `subdomain-isolation` → one `dependency/import` rule (4 → 1). |
 | **Dropped** | per-node `public` surface, separate `foundations` list, `isolate` flags — superseded by Go `internal/` for visibility and `shared` for broadcast. |
 | **Re-mapped** | `naming/*`, `structure/*`, `iface/*`, `ddd/*` read the node chain instead of `Component` / `Layer`. Not new rules. |
@@ -78,17 +78,18 @@ rules shrink (4 → 1); structural change is the substance.
 
 **Tree**
 
-- **node** — a directory that participates as a unit: either walled by its parent
-  (a *walling* parent) or itself a *walling node*.
-- **root** — the top node; always a node.
+- **node** — every directory is a node. Most carry no policy; they matter only
+  when a walling ancestor isolates them.
+- **root** — the top node; always a walling node.
 - **parent / child / sibling** — tree nesting; siblings share a parent.
 - **ancestor / descendant / subtree** — up / down a chain; a subtree is a node
   plus all its descendants.
-- **walling node** — a directory with a config; it walls its direct
-  subdirectories into child nodes. Local — independent of whether it is itself
-  walled.
-- **leaf** — a node with no children; its subdirectories are part of its own
-  code, not nodes. (A leaf is still a node.)
+- **walling node** — a node whose config declares children; it puts a **wall**
+  between those children. A directory becomes walling by having a config — nothing
+  else. (Intermediate directories created only to reach a deeper config are *not*
+  walling.)
+- **leaf** — a node with no config (non-walling); its subdirectories are part of
+  its own code, governed by the nearest walling ancestor.
 - **chain** — a file's `Location`: the nodes from root down to the node owning
   the file, e.g. `[root, kafka, consumer]`.
 
@@ -101,7 +102,9 @@ rules shrink (4 → 1); structural change is the substance.
   is the edge `A → B`).
 - **`shared`** — a broadcast edge: `B shared` opens edges from all of `B`'s
   siblings (and their subtrees) into `B`.
-- **wall** — the default deny between sibling nodes; an edge is a gap in the wall.
+- **wall** — the default deny between the children of a walling node; an edge is
+  a gap in the wall. Only a walling node's children are walled — siblings under a
+  non-walling (leaf) parent are not.
 
 **Policy**
 
@@ -123,22 +126,28 @@ fields:
 | `may_import` | pull (importer) | Nodes this node may import. Explicit, directed edges. |
 | `shared` | push (importee) | If `true`, this node may be imported by any node within its **parent's subtree**. A common dependency, declared once instead of in every sibling's `may_import`. |
 
-**What makes a directory a node.** Two separate things, often conflated:
+**Every directory is a node; walls come from the parent.** There is one rule:
 
-- A directory **walls its children** — is a *walling node* — when it has a config
-  (a `children` section, inline or co-located). This is **local**: its direct
-  subdirectories become child nodes, isolated from each other by default. Adding a
-  config to `kafka/consumer/pool` makes `pool` a walling node over its own
-  subtree; it does *not* promote `consumer`. The repo root is always a walling
-  node.
-- A directory is **walled from its siblings** only when its *parent* is a walling
-  node. So whether `consumer` is isolated from its siblings is `kafka`'s call, not
-  `consumer`'s — node-hood at your level comes from your **parent's** config.
+> A **walling node** — a node whose config declares children — puts a **wall**
+> between those children. Everything else is just a node with no policy.
 
-A directory with no config whose parent is a leaf is just code. Naming a child in
-a config only attaches policy (`may_import` / `shared`); unnamed direct
-subdirectories are nodes too (deny-default, no edges). A node's `path` is simply
-its directory (e.g. `pkg/kafka/consumer`); parent/child follows from path prefix.
+So a child is walled from its siblings exactly when its **parent is a walling
+node**. Adding a config to `kafka/consumer/pool` makes `pool` a walling node over
+*its own* children; it does not make `consumer` walling, so it never walls
+`consumer`'s other subdirectories. The repo root is always a walling node, so its
+top-level features (`kafka`, `sqlrepo`) are walled.
+
+Naming a child in a config only attaches policy (`may_import` / `shared`);
+unnamed direct subdirectories are still walled siblings (deny-default, no edges).
+A node's `path` is simply its directory (e.g. `pkg/kafka/consumer`); parent/child
+follows from path prefix.
+
+**Intermediate nodes are transparent.** A deep co-located config (say at
+`a/x/feat`) materialises the nodes on its path (`a`, `a/x`, …) so the tree can
+reach it, but those auto-created nodes are **not** walling — only a node with its
+own config walls. So if `a` is a leaf, two deep branches `a/x/feat1` and
+`a/y/feat2` are *not* walled against each other; the wall only ever sits on a
+node that actually declared children.
 
 `shared` scope follows **position** — there is no separate "global vs sibling"
 setting:
@@ -170,7 +179,9 @@ file in node `S` to a package in node `T`.
   `consumer` child, or `consumer` using `kafka`'s shared types, is always fine.
 - **Horizontal is checked at the divergence.** Otherwise `S` and `T` split at
   some level: let `Sc` and `Tc` be the sibling nodes that are the children of
-  their lowest common ancestor. The import is allowed iff
+  their lowest common ancestor `P`. If `P` is **not a walling node** (it declared
+  no children — e.g. an intermediate node, or a leaf ancestor), there is no wall
+  and the import is allowed. If `P` is walling, the import is allowed iff
   - `Tc ∈ Sc.may_import` — the sibling edge `Sc → Tc`, declared in the common
     parent. Entries name **siblings only**; how much of `Tc` is then reachable is
     Go's `internal/` decision, not a deeper `may_import` path. Or
@@ -195,20 +206,49 @@ may import which). A node hides its privates with `internal/`; cht's check runs
 on top of — never instead of — Go's visibility.
 
 **Cross-feature exposure** therefore needs no `public` field. To let `sqlrepo`
-use `kafka/core`, the root config (their common parent) declares
-`sqlrepo: { may_import: [kafka/core] }`; Go's `internal/` keeps `kafka`'s
-privates unreachable regardless of what is declared.
+use `kafka`, the root config (their common parent) declares
+`sqlrepo: { may_import: [kafka] }` — `may_import` names siblings, so it grants
+`kafka` as a whole; Go's `internal/` decides how much of `kafka` is actually
+reachable.
+
+### Internal directories
+
+`internal/` is a **transparent path segment**, not a node. Its immediate
+subdirectories hoist to the enclosing walling node's level and become ordinary
+**deny-default** siblings of that node's other children.
+
+```text
+pkg/kafka/internal/codec/x.go
+chain: [kafka, kafka/codec]     # `internal` skipped; codec is a kafka child node
+```
+
+So inside `kafka`, a package reaches `codec` only through a declared edge —
+`consumer: { may_import: [codec] }`, or `codec: { shared: true }` for a helper the
+whole feature uses. This is the same dogma as everywhere else: **placing a config
+on `kafka` opts its whole subtree — `internal/` included — into strict
+management.** Go still enforces the *outside* invariant for free (no package
+outside `kafka` can import `kafka/internal/codec`), so cht only adds the
+*intra*-subtree edge control Go does not give. Hoisting each internal package to
+its own node is what lets a feature say "only `consumer` may use `codec`"; a
+coarser "the whole `internal/` bag is one node" could not.
+
+**Name collision.** If a hoisted `internal/x` and a real sibling `x` would both
+claim the name `x` under one walling node, that is a configuration error, reported
+as a `node-tree/config` diagnostic (see *Config validation*); rename or move one
+out of `internal/`. Collisions surface only when both directories exist, so most
+repos never hit one.
 
 ### Location assignment
 
-A file's `Location` is the **chain of nodes on its path**, the deepest node
-owning the file. A directory that is not a node (it sits under a leaf) belongs to
-the nearest node above it. No marker; depth unbounded.
+A file's `Location` is the **chain of declared nodes on its path** down to the
+deepest one owning the file. The walk descends declared nodes and stops where a
+directory was never declared, so that deepest node owns everything below it. No
+marker; depth unbounded.
 
 ```text
 file:  pkg/kafka/consumer/pool/x.go
-chain: [kafka, kafka/consumer]          # kafka and consumer are nodes
-                                        # consumer is a leaf → pool is consumer's code
+chain: [kafka, kafka/consumer]          # kafka declares consumer; consumer is a
+                                        # leaf (declares nothing) → pool is its code
 ```
 
 ### Config placement
@@ -234,15 +274,72 @@ One filename everywhere: **`.cht-go-lint.yaml`**, cascading by directory (like
   `roots: [pkg]` option (carried from `flat-pkg`) tells the root node where its
   top-level feature children begin, so `pkg/kafka` and `pkg/sqlrepo` are the
   root's children rather than `pkg` being one node.
-- **Severity override:** a node's config may set a rule's severity for its own
-  subtree (cascade) — e.g. a legacy node kept at `warn` while the global default
-  is `error`. This is the per-component severity override the current tool
-  already has.
+
+Severity stays global (one setting per rule in the root `rules:`). The import
+rule needs no per-node severity knob: an exception is expressed as an **edge**
+(`may_import`) that legitimises the import, a noisy area is skipped with
+`exclude_paths`, and a whole ruleset is pulled in with `extends` — so a per-node
+severity cascade would only overlap these.
 
 **Recommendation:** small, centrally-owned repos (`go-lib`) keep everything in a
 single root file; large multi-team repos (`ch-app-store`) co-locate per feature.
 Splitting a feature into its own file is the escape valve for scale, not the
 default.
+
+### Global layers (templates)
+
+A service repo usually wants the *same* layer wiring in every domain —
+`svc → repo → model`, `handler → svc`, etc., regardless of which domain. Repeating
+that per domain is the duplication the old global `Layer` axis avoided. A
+**template** restores it without a separate axis: define the layer child-set once
+under root `templates:` and have each domain reference it.
+
+```yaml
+templates:
+  layers:                                  # the msa-v2 directions, once
+    model: { shared: true }
+    repo: {}
+    svc:  { may_import: [repo] }
+    handler: { may_import: [svc] }
+default_template: layers                    # every domain gets it, no repetition
+children:
+  app:   { may_import: [order] }            # default layers + a cross-domain edge
+  order: {}                                 # default layers
+  errs:  { shared: true, template: none }   # opt out — a foundation, not a domain
+```
+
+`default_template` applies a template to every top-level node automatically; a
+node opts out with `template: none`, or overrides by declaring its own
+`children` / `template`. A template's children are merged in, with explicitly
+listed children winning. The wiring is enforced identically in every domain —
+global layers, expressed as ordinary node edges rather than a parallel concept.
+(See the `template-combination` / `cross-domain-grant` fixtures under
+`testdata/rules/dependency/import/`.)
+
+**Template validation.** A `template:` (or `default_template:`) that names a
+template not defined under `templates:` is a configuration error, as is a template
+that references itself directly or transitively (`a → b → a`); the latter is
+detected by a cycle guard so assembly terminates instead of looping. A template's
+child-set is **deep-copied** into each referencing node, so a per-node edit never
+leaks across the domains that share the template.
+
+### Config validation
+
+Assembly problems are surfaced as `node-tree/config` diagnostics, always at
+**error** severity and independent of the per-rule severity map — a broken policy
+file must fail loudly rather than silently drop a wall. This covers an unparseable
+or unreadable co-located `.cht-go-lint.yaml`, an unknown or self-referential
+template, a hoist name collision, and a directory that cannot be scanned. (This is
+the same "fixed rule name, always on" treatment golangci findings get; it is not
+gated by `rules:` and is not one of the architecture rules.)
+
+Because these diagnostics carry config- and source-derived text (paths, YAML
+keys, parser errors) that can contain arbitrary bytes, every violation's
+human-readable fields are stripped of control characters at the source (when
+collected) so no line-based output — the text/GitHub formatters or `Report.String()`
+— can be tricked into emitting an injected line such as a forged CI workflow
+command. The GitHub formatter additionally percent-encodes property delimiters for
+correct `file=,line=` parsing.
 
 ### Discovery & assembly
 
@@ -330,8 +427,12 @@ children:
 - Both may import `pkg/errors` (shared at root).
 - `kafka ⊥ sqlrepo` by default; if `sqlrepo` needs `kafka`, the **root** config
   (their common parent) declares `sqlrepo: { may_import: [kafka] }` — `may_import`
-  names siblings, so it grants `kafka` as a whole, and Go's `internal/` decides
-  how much is actually reachable (here only the non-internal `core`).
+  names siblings, so it grants `kafka` as a whole; Go's `internal/` then keeps
+  `kafka/internal/*` unreachable, so what `sqlrepo` gets is `kafka`'s non-internal
+  surface.
+- `kafka/internal/*` hoists to deny-default `kafka` children (see *Internal
+  directories*): `kafka`'s own packages reach them only through a declared edge,
+  and nothing outside `kafka` can (Go).
 
 ## Rule re-mapping (the 41 rules)
 
@@ -378,6 +479,14 @@ children:
   architecture and reduces cht-go-lint to an enriched `depguard`.
 - **Incremental within the three-axis model.** Rejected — does not fix recursion
   or the marker. (An initial component-scoped-layers PR was closed for this RFC.)
+- **A per-node `internal:` mode flag (transparent vs walled) + an A/B default
+  policy (open-by-default + `deny` list vs deny-by-default + `may_import`).**
+  Considered while settling `internal/` handling. Rejected for one uniform policy
+  — **deny-default everywhere, `may_import` to open** — with the *presence of a
+  config* as the only strict/loose toggle. Two default modes would need a mirror
+  `deny` field and force every reader to first learn which mode a level is in;
+  `internal/` needs no flag because its hoisted children are deny-default like any
+  walled sibling.
 
 ## Deferred
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // Report collects violations and fix results from rule checks.
@@ -20,9 +21,30 @@ func NewReport() *Report {
 
 // Add appends a violation to the report. Safe for concurrent use.
 func (r *Report) Add(v Violation) {
+	v.File = sanitizeDiagnostic(v.File)
+	v.Message = sanitizeDiagnostic(v.Message)
+	v.Rule = sanitizeDiagnostic(v.Rule)
+	v.Found = sanitizeDiagnostic(v.Found)
+	v.Expected = sanitizeDiagnostic(v.Expected)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.violations = append(r.violations, v)
+}
+
+// sanitizeDiagnostic replaces control characters (CR, LF, tab, C0/C1, DEL) with a
+// space. Every human-readable string field of a violation flows into line-based
+// output — the text and GitHub formatters and the exported Report.String() — so a
+// config- or source-derived value (a path, an import string, a parser error)
+// could otherwise carry a newline and inject a second line, e.g. a forged GitHub
+// Actions workflow command. Neutralized once at the source so every formatter and
+// String() path is protected rather than each separately.
+func sanitizeDiagnostic(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 // Violations returns all collected violations.

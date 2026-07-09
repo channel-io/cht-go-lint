@@ -1,0 +1,13 @@
+# Layer direction via a template: svc -> repo -> model down is allowed; model -> svc up is not.
+module: example.com/layer
+location: { strategy: node-tree }
+roots: [internal/domain]
+rules: { dependency/import: error }
+templates:
+  layers:
+    model: { shared: true }
+    repo: { may_import: [model] }
+    svc: { may_import: [model, repo] }
+default_template: layers
+children:
+  order: {}
