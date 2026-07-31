@@ -54,7 +54,7 @@ a minimal golangci-only config.)
 
 | Class | Items |
 |---|---|
-| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`children` / `may_import` / `shared` / `templates`); `internal/` hoisting (transparent segment, deny-default children); the unified `dependency/import` rule. |
+| **New** | node-tree location strategy; `Location` as a node chain; node config schema (`children` / `may_import` / `shared` / `templates`); `internal/` handling (non-walling segment, deny-default children named with it); the unified `dependency/import` rule. |
 | **Consolidated** | `module-isolation` + `layer-direction` + `cross-boundary` + `subdomain-isolation` → one `dependency/import` rule (4 → 1). |
 | **Dropped** | per-node `public` surface, separate `foundations` list, `isolate` flags — superseded by Go `internal/` for visibility and `shared` for broadcast. |
 | **Re-mapped** | `naming/*`, `structure/*`, `iface/*`, `ddd/*` read the node chain instead of `Component` / `Layer`. Not new rules. |
@@ -213,30 +213,31 @@ reachable.
 
 ### Internal directories
 
-`internal/` is a **transparent path segment**, not a node. Its immediate
-subdirectories hoist to the enclosing walling node's level and become ordinary
-**deny-default** siblings of that node's other children.
+`internal/` is a **non-walling path segment**, not a node. Its immediate
+subdirectories belong to the enclosing walling node as ordinary **deny-default**
+siblings of that node's other children. The segment stays in the node's name, so
+name and path match the directory on disk.
 
 ```text
 pkg/kafka/internal/codec/x.go
-chain: [kafka, kafka/codec]     # `internal` skipped; codec is a kafka child node
+chain: [kafka, kafka/internal/codec]     # `internal` walls nothing but still names the node
 ```
 
-So inside `kafka`, a package reaches `codec` only through a declared edge —
-`consumer: { may_import: [codec] }`, or `codec: { shared: true }` for a helper the
-whole feature uses. This is the same dogma as everywhere else: **placing a config
-on `kafka` opts its whole subtree — `internal/` included — into strict
-management.** Go still enforces the *outside* invariant for free (no package
+So inside `kafka`, a package reaches it only through a declared edge —
+`consumer: { may_import: [internal/codec] }`, or `internal/codec: { shared: true }`
+for a helper the whole feature uses. This is the same dogma as everywhere else:
+**placing a config on `kafka` opts its whole subtree — `internal/` included — into
+strict management.** Go still enforces the *outside* invariant for free (no package
 outside `kafka` can import `kafka/internal/codec`), so cht only adds the
-*intra*-subtree edge control Go does not give. Hoisting each internal package to
-its own node is what lets a feature say "only `consumer` may use `codec`"; a
-coarser "the whole `internal/` bag is one node" could not.
+*intra*-subtree edge control Go does not give. Treating each internal package as
+its own node is what lets a feature say "only `consumer` may use `internal/codec`";
+a coarser "the whole `internal/` bag is one node" could not.
 
-**Name collision.** If a hoisted `internal/x` and a real sibling `x` would both
-claim the name `x` under one walling node, that is a configuration error, reported
-as a `node-tree/config` diagnostic (see *Config validation*); rename or move one
-out of `internal/`. Collisions surface only when both directories exist, so most
-repos never hit one.
+**No name collision.** A real sibling `codec` and `internal/codec` are separate
+node names, so they never contend for one child slot and can be granted
+independently. An earlier revision dropped the segment from the name, which made
+the two ambiguous and needed a `node-tree/config` diagnostic plus a filesystem
+scan to detect the clash; keeping the segment removes both.
 
 ### Location assignment
 
@@ -329,7 +330,7 @@ Assembly problems are surfaced as `node-tree/config` diagnostics, always at
 **error** severity and independent of the per-rule severity map — a broken policy
 file must fail loudly rather than silently drop a wall. This covers an unparseable
 or unreadable co-located `.cht-go-lint.yaml`, an unknown or self-referential
-template, a hoist name collision, and a directory that cannot be scanned. (This is
+template and a directory that cannot be scanned. (This is
 the same "fixed rule name, always on" treatment golangci findings get; it is not
 gated by `rules:` and is not one of the architecture rules.)
 
@@ -430,7 +431,7 @@ children:
   names siblings, so it grants `kafka` as a whole; Go's `internal/` then keeps
   `kafka/internal/*` unreachable, so what `sqlrepo` gets is `kafka`'s non-internal
   surface.
-- `kafka/internal/*` hoists to deny-default `kafka` children (see *Internal
+- `kafka/internal/*` are deny-default `kafka` children (see *Internal
   directories*): `kafka`'s own packages reach them only through a declared edge,
   and nothing outside `kafka` can (Go).
 
@@ -485,7 +486,7 @@ children:
   — **deny-default everywhere, `may_import` to open** — with the *presence of a
   config* as the only strict/loose toggle. Two default modes would need a mirror
   `deny` field and force every reader to first learn which mode a level is in;
-  `internal/` needs no flag because its hoisted children are deny-default like any
+  `internal/` needs no flag because its children are deny-default like any
   walled sibling.
 
 ## Deferred

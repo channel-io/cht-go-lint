@@ -19,7 +19,7 @@ var importFixtures = []string{
 	"sibling-isolation",    // deny-default between features + undeclared siblings
 	"layer-direction",      // template layers: down allowed, up blocked
 	"shared-scope",         // shared by position: root-global vs feature-local
-	"internal-hoist",       // internal/ hoisted to a node, granted per sibling
+	"internal-segment",     // internal/ names a node, granted per sibling
 	"template-combination", // one template = layer direction AND domain isolation
 	"cross-domain-grant",   // may_import opens one domain; reverse stays blocked
 }

@@ -748,30 +748,35 @@ var _ = y.T{}
 	}
 }
 
-// A real sibling <x> colliding with a hoisted internal/<x> is reported end-to-end
-// through Check, and honoring exclude_paths suppresses the scan.
-func TestNodeTreeCollisionReported(t *testing.T) {
+// An internal/<x> node and a real sibling <x> are separate nodes, so they can
+// be granted independently rather than contending for one child slot.
+func TestNodeTreeInternalAndRealSiblingCoexist(t *testing.T) {
 	dir := t.TempDir()
 	writeGoFile(t, dir, "go.mod", "module example.com/test\n\ngo 1.22\n")
 	writeGoFile(t, dir, "pkg/kafka/codec/codec.go", "package codec\n\ntype A struct{}\n")
 	writeGoFile(t, dir, "pkg/kafka/internal/codec/codec.go", "package codec\n\ntype B struct{}\n")
-	writeGoFile(t, dir, "pkg/kafka/producer/producer.go", "package producer\n")
+	writeGoFile(t, dir, "pkg/kafka/producer/use.go",
+		"package producer\n\nimport \"example.com/test/pkg/kafka/internal/codec\"\n\nvar _ = codec.B{}\n")
 	cfg := &lint.Config{
 		Root:       dir,
 		ModulePath: "example.com/test",
 		Roots:      []string{"pkg"},
 		Location:   &lint.LocationConfig{Strategy: "node-tree"},
 		Children: map[string]*lint.NodeConfig{
-			"kafka": {Children: map[string]*lint.NodeConfig{"producer": {}}},
+			"kafka": {Children: map[string]*lint.NodeConfig{
+				"producer": {MayImport: []string{"internal/codec"}},
+			}},
 		},
 		Rules: map[string]lint.RuleConfig{"dependency/import": {Severity: lint.Error}},
 	}
-	if !hasConfigError(lint.Check(cfg), "collides with real sibling") {
-		t.Errorf("expected a hoist-collision config error")
+	if got := lint.Check(cfg).ErrorCount(); got != 0 {
+		t.Errorf("producer granted internal/codec must be allowed, got %d error(s)", got)
 	}
 
-	cfg.ExcludePaths = []string{"pkg/kafka"}
-	if hasConfigError(lint.Check(cfg), "collides") {
-		t.Errorf("excluded path must not be scanned for collisions")
+	// The grant names internal/codec, so the real sibling codec stays walled.
+	writeGoFile(t, dir, "pkg/kafka/producer/use_real.go",
+		"package producer\n\nimport realcodec \"example.com/test/pkg/kafka/codec\"\n\nvar _ = realcodec.A{}\n")
+	if lint.Check(cfg).ErrorCount() == 0 {
+		t.Errorf("codec is a distinct node from internal/codec and must stay walled")
 	}
 }

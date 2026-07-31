@@ -2,14 +2,12 @@ package lint
 
 import (
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 )
 
 const (
-	internalSegment = "internal" // transparent path segment (a Go visibility marker, not a node)
+	internalSegment = "internal" // non-walling path segment (a Go visibility marker, not a node)
 	templateNone    = "none"     // reserved template value: explicit opt-out
 )
 
@@ -48,8 +46,8 @@ func applyDefaultTemplate(children map[string]*NodeConfig, name string) {
 }
 
 // NodeIssue is a configuration problem found while assembling the tree — an
-// unknown or self-referential template, a co-located config that failed to parse,
-// or a hoist name collision. Surfaced as a diagnostic so a broken config fails
+// unknown or self-referential template, or a co-located config that failed to
+// parse. Surfaced as a diagnostic so a broken config fails
 // loudly instead of silently disabling enforcement.
 type NodeIssue struct {
 	Path    string // where to anchor the diagnostic (dir or config path); "" if none
@@ -196,20 +194,13 @@ func (t *NodeTree) Chain(relPath string) []*Node {
 	}
 	var chain []*Node
 	cur := t.Root
-	for _, seg := range strings.Split(rel, "/") {
-		if seg == internalSegment {
-			// `internal/` is a Go visibility marker, not an architecture node.
-			// Skip it transparently so its children hoist to cur's level as
-			// deny-default siblings. Go already blocks any reach from outside
-			// cur's subtree, so cht only governs the intra-subtree edges.
-			continue
-		}
-		next, ok := cur.Children[seg]
+	for _, key := range nodeKeys(rel) {
+		next, ok := cur.Children[key]
 		if !ok {
 			if cur.Walling {
 				chain = append(chain, &Node{
-					Name:   seg,
-					Path:   joinNodePath(cur.Path, seg),
+					Name:   key,
+					Path:   joinNodePath(cur.Path, key),
 					Parent: cur,
 				})
 			}
@@ -221,6 +212,29 @@ func (t *NodeTree) Chain(relPath string) []*Node {
 	return chain
 }
 
+// nodeKeys splits a module-relative directory into node keys.
+//
+// `internal/` is a Go visibility marker, not an architecture node: it does not
+// wall its children, so they belong to the enclosing walling node as ordinary
+// deny-default siblings. It stays in the key of the segment that follows, so a
+// node's name and path match where it sits on disk — `internal/codec` rather
+// than `codec`. Go already blocks any reach from outside the subtree; cht only
+// governs the edges inside it.
+func nodeKeys(rel string) []string {
+	segments := strings.Split(rel, "/")
+	keys := make([]string, 0, len(segments))
+	prefix := ""
+	for _, segment := range segments {
+		if segment == internalSegment {
+			prefix += internalSegment + "/"
+			continue
+		}
+		keys = append(keys, prefix+segment)
+		prefix = ""
+	}
+	return keys
+}
+
 // attachNodeAt finds (or creates) the node for a directory relative to the
 // module root and applies a co-located config to it — its children wiring, plus
 // any policy it carries. Intermediate nodes are created as needed.
@@ -230,19 +244,16 @@ func (t *NodeTree) attachNodeAt(relDir string, c *NodeConfig) {
 		return
 	}
 	cur := t.Root
-	for _, seg := range strings.Split(rel, "/") {
-		if seg == internalSegment {
-			continue // transparent segment — mirrors Chain's hoisting
-		}
-		next, ok := cur.Children[seg]
+	for _, key := range nodeKeys(rel) {
+		next, ok := cur.Children[key]
 		if !ok {
 			next = &Node{
-				Name:     seg,
-				Path:     joinNodePath(cur.Path, seg),
+				Name:     key,
+				Path:     joinNodePath(cur.Path, key),
 				Parent:   cur,
 				Children: map[string]*Node{},
 			}
-			cur.Children[seg] = next
+			cur.Children[key] = next
 		}
 		cur = next
 	}
@@ -277,74 +288,6 @@ func (t *NodeTree) stripRoot(relPath string) (string, bool) {
 	return "", false
 }
 
-// InternalCollision is a directory where a hoisted `internal/<name>` would claim
-// the same node name as a real sibling `<name>` under the same walling node. Both
-// map to one node, so the resolution is ambiguous — a configuration error.
-type InternalCollision struct {
-	Dir  string // the offending internal/<name> directory, relative to root (slash)
-	Name string // the clashing node name
-	Node string // logical path of the walling node the two would share
-}
-
-// InternalCollisions scans the filesystem for hoist name clashes: an `internal/`
-// directory whose child names overlap the real sibling directories under the same
-// walling node. Because `internal/` is transparent, both would resolve to a single
-// child node of that walling node. Clashes only arise when the hoisted node is
-// actually present, so most repos report none.
-//
-// This is a pure query: a directory that cannot be scanned is skipped silently
-// here. Scan failures are surfaced by mergeColocatedNodes, which walks the same
-// root with the same exclusions; call this alongside such a walk (as
-// buildTreeFromConfig does) or scan errors go unreported.
-func (t *NodeTree) InternalCollisions(root string, excludePaths []string) []InternalCollision {
-	var out []InternalCollision
-	if root == "" {
-		return out
-	}
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			// Scan failures are surfaced by mergeColocatedNodes, which walks the
-			// same tree; keep this a pure query so re-invoking it is idempotent
-			// and the diagnostic is not emitted twice.
-			return nil
-		}
-		if !d.IsDir() {
-			return nil
-		}
-		if excludedDir(root, path, excludePaths) {
-			return filepath.SkipDir
-		}
-		if skipDirs[d.Name()] {
-			return filepath.SkipDir
-		}
-		if d.Name() != internalSegment {
-			return nil
-		}
-		rel, e := filepath.Rel(root, filepath.Dir(path))
-		if e != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		node, ok := t.nodeForDir(rel)
-		if !ok || !node.Walling {
-			return nil // only a walling parent materialises hoisted child nodes
-		}
-		siblings := childDirSet(filepath.Dir(path))
-		delete(siblings, internalSegment)
-		for name := range childDirSet(path) {
-			if siblings[name] {
-				out = append(out, InternalCollision{
-					Dir:  filepath.ToSlash(filepath.Join(rel, internalSegment, name)),
-					Name: name,
-					Node: node.Path,
-				})
-			}
-		}
-		return nil
-	})
-	return out
-}
-
 // pathExcluded reports whether a module-relative directory matches one of the
 // configured exclude_paths (same prefix semantics as CodebaseAnalyzer.IsExcluded).
 func pathExcluded(rel string, excludePaths []string) bool {
@@ -366,33 +309,4 @@ func pathExcluded(rel string, excludePaths []string) bool {
 func excludedDir(root, path string, excludePaths []string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && rel != "." && pathExcluded(rel, excludePaths)
-}
-
-// nodeForDir returns the deepest node owning a directory relative to the module
-// root (roots prefix included). ok is false when the directory lies outside every
-// configured root.
-func (t *NodeTree) nodeForDir(rel string) (*Node, bool) {
-	if r, ok := t.stripRoot(rel); ok && r == "" {
-		return t.Root, true
-	}
-	chain := t.Chain(rel)
-	if len(chain) == 0 {
-		return nil, false
-	}
-	return chain[len(chain)-1], true
-}
-
-// childDirSet returns the immediate subdirectory names of dir (skip set excluded).
-func childDirSet(dir string) map[string]bool {
-	set := map[string]bool{}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return set
-	}
-	for _, e := range entries {
-		if e.IsDir() && !skipDirs[e.Name()] {
-			set[e.Name()] = true
-		}
-	}
-	return set
 }
