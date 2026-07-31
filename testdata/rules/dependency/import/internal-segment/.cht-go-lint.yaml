@@ -1,0 +1,11 @@
+# internal/ does not wall, so internal/codec is a kafka child — named by its path,
+# and granted only to consumer.
+module: example.com/hoist
+location: { strategy: node-tree }
+roots: [pkg]
+rules: { dependency/import: error }
+children:
+  kafka:
+    children:
+      producer: {}
+      consumer: { may_import: [internal/codec] }

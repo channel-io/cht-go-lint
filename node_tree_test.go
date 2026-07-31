@@ -1,8 +1,6 @@
 package lint
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -41,12 +39,12 @@ func TestNodeTreeChain(t *testing.T) {
 		{"pkg/kafka", "kafka"},
 		{"pkg/errors", "errors"},
 		{"pkg/sqlrepo", "sqlrepo"},
-		{"pkg/kafka/newdir", "kafka > kafka/newdir"}, // undeclared under walling kafka → deny node
-		{"pkg/newfeature", "newfeature"},             // undeclared top-level → deny node under root
-		{"pkg/kafka/internal/codec", "kafka > kafka/codec"},     // internal/ skipped; codec hoists to a kafka child
-		{"pkg/kafka/internal/codec/sub", "kafka > kafka/codec"}, // codec is a leaf → sub is its code
-		{"pkg/kafka/internal", "kafka"},                         // lone internal/ is transparent → no node
-		{"other", ""},                                // outside roots
+		{"pkg/kafka/newdir", "kafka > kafka/newdir"},                     // undeclared under walling kafka → deny node
+		{"pkg/newfeature", "newfeature"},                                 // undeclared top-level → deny node under root
+		{"pkg/kafka/internal/codec", "kafka > kafka/internal/codec"},     // internal/ does not wall; the node keeps it in its name
+		{"pkg/kafka/internal/codec/sub", "kafka > kafka/internal/codec"}, // internal/codec is a leaf → sub is its code
+		{"pkg/kafka/internal", "kafka"},                                  // lone internal/ names no node
+		{"other", ""},                                                    // outside roots
 	}
 	for _, tt := range tests {
 		got := chainPaths(tree.Chain(tt.dir))
@@ -87,31 +85,36 @@ func TestNodeTreePolicy(t *testing.T) {
 	}
 }
 
-func TestInternalCollisions(t *testing.T) {
-	root := t.TempDir()
-	for _, d := range []string{"pkg/kafka/codec", "pkg/kafka/internal/codec", "pkg/kafka/producer"} {
-		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// kafka is walling (declares producer), so both pkg/kafka/codec and the
-	// hoisted pkg/kafka/internal/codec would claim the child name "codec".
+func TestInternalNodeNaming(t *testing.T) {
+	// kafka walls its children; internal/ does not, so internal/codec is a child
+	// of kafka named by its path from kafka — not a bare "codec".
 	tree := BuildNodeTree([]string{"pkg"}, map[string]*NodeConfig{
-		"kafka": {Children: map[string]*NodeConfig{"producer": {}}},
+		"kafka": {Children: map[string]*NodeConfig{
+			"producer":       {},
+			"internal/codec": {},
+			"codec":          {},
+		}},
 	})
 
-	cols := tree.InternalCollisions(root, nil)
-	if len(cols) != 1 || cols[0].Name != "codec" || cols[0].Node != "kafka" {
-		t.Fatalf("want one codec collision under kafka, got %+v", cols)
+	chain := tree.Chain("pkg/kafka/internal/codec")
+	if len(chain) != 2 {
+		t.Fatalf("chain length = %d, want 2: %+v", len(chain), chain)
+	}
+	if got := chain[1].Name; got != "internal/codec" {
+		t.Errorf("internal node name = %q, want internal/codec", got)
+	}
+	if got := chain[1].Path; got != "kafka/internal/codec" {
+		t.Errorf("internal node path = %q, want kafka/internal/codec", got)
 	}
 
-	// No internal/ dir under a walling node → no collisions.
-	clean := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(clean, "pkg/kafka/producer"), 0o755); err != nil {
-		t.Fatal(err)
+	// A real sibling of the same base name is a different node, so the two no
+	// longer contend for one child slot.
+	real := tree.Chain("pkg/kafka/codec")
+	if len(real) != 2 || real[1].Path != "kafka/codec" {
+		t.Fatalf("real sibling path = %+v, want kafka/codec", real)
 	}
-	if got := tree.InternalCollisions(clean, nil); len(got) != 0 {
-		t.Fatalf("want no collisions, got %+v", got)
+	if real[1] == chain[1] {
+		t.Error("internal/codec and codec resolved to the same node")
 	}
 }
 

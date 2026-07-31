@@ -17,10 +17,10 @@ behavior in one place — no separate clean vs. violation projects.
 | `sibling-isolation` | consumer → producer (may_import) | kafka → sqlrepo (sibling feature); undeclared `loose` → producer |
 | `layer-direction` | svc → repo → model (down) | model → svc (up) |
 | `shared-scope` | → errs (root shared, everywhere); consumer → kafka/core (feature-local shared) | consumer → producer (not shared, no edge) |
-| `internal-hoist` | consumer → internal/codec (granted) | producer → internal/codec (not granted) |
+| `internal-segment` | consumer → internal/codec (granted) | producer → internal/codec (not granted) |
 | `template-combination` | order/svc → order/model (same-domain layer) | order/svc → app/model (domain isolation); order/model → order/svc (layer direction) |
 | `cross-domain-grant` | app → order/publicsvc (app may_import order) | order → app/model (reverse, not granted) |
 
 Config-assembly diagnostics (`node-tree/config`: unknown/self-referential template, unparseable
-co-located config, hoist name collision, unscannable directory) are **not** import-graph
+co-located config, unscannable directory) are **not** import-graph
 behaviors — they are covered by unit tests (`lint_test.go`, `node_tree_test.go`), not fixtures.
