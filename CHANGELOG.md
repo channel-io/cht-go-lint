@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Repository contract rules for method vocabulary and Find/Fetch semantics, read-modify-write concurrency guards, and apierr/sentinel/wrapping/import policy
+- Exact, groupable `exclude_methods` and `exclude_imports` support with optional stale-exclusion rejection for repository contract rules
 - `--fix` now passes `--fix` to golangci-lint, auto-fixing goimports/gofmt/etc. in addition to built-in fixers
 - `exclude_paths` config: exclude directories from architecture rule scanning (e.g., `lib`, `cmd`, `test`)
 - `go_lint` config: golangci-lint integration — run both architecture and golangci-lint checks with a single `cht-go-lint check` command
