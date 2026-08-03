@@ -28,7 +28,7 @@ func TestRuleRegistration(t *testing.T) {
 		"naming":     8,
 		"interface":  5,
 		"structure":  9,
-		"ddd":        8,
+		"ddd":        11,
 	}
 	for cat, want := range expected {
 		if got := categories[cat]; got != want {

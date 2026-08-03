@@ -9,7 +9,7 @@ Architecture linter for Go projects. Enforce layer dependencies, naming conventi
 
 ## Features
 
-- **41 built-in rules** across 5 categories (dependency, naming, interface, structure, DDD)
+- **45 built-in rules** across 5 categories (dependency, naming, interface, structure, DDD)
 - **Tier system** — rules declare their config requirements; only applicable rules run
 - **Presets** — start with `clean-arch` or build your own configuration
 - **Location strategies** — map your project structure (`nested-domain`, `flat-pkg`) to architectural layers
@@ -108,7 +108,7 @@ rules:
 | `structure/import-alias` | universal | Import aliases should follow a naming convention |
 | `structure/delegation-only` | layer-aware | Methods in target layers should only delegate to another type's method |
 
-### DDD (8 rules)
+### DDD (11 rules)
 
 | Rule | Tier | Description |
 |------|------|-------------|
@@ -120,6 +120,41 @@ rules:
 | `ddd/bounded-context-isolation` | domain-specific | Bounded contexts should not directly import each other |
 | `ddd/no-domain-to-infra` | layer-aware | Domain layer must not import infrastructure packages |
 | `ddd/service-layer` | layer-aware | Enforce separation between domain services and application services |
+| `ddd/repository-method-contract` | layer-aware | Enforce repository method vocabulary and Find/Fetch absence semantics |
+| `ddd/repository-read-modify-write` | layer-aware | Require an explicit concurrency guard for read-before-full-row-write flows |
+| `ddd/repository-error-contract` | layer-aware | Require apierr/sqlrepo classification, go-lib errors, and wrapping at repository boundaries |
+
+Repository contract rules support exact, rule-local debt exclusions. Exclusions live in the rule options rather than a separate baseline file. With `reject_unused_excludes: true`, fixing a violation also requires removing its stale exclusion:
+
+```yaml
+rules:
+  ddd/repository-method-contract:
+    severity: error
+    options:
+      reject_unused_excludes: true
+      discouraged_mutation_prefixes: [Update, Save, Set, Mark, Revoke, Copy, Deactivate, Complete, Append]
+      exclude_methods:
+        - path: internal/domain/catalog/repo/widget.go
+          symbols: [Widget.Save, widget.Find]
+          reason: legacy repository contract
+  ddd/repository-read-modify-write:
+    severity: error
+    options:
+      reject_unused_excludes: true
+      target_layers: [repo, service, appsvc]
+      exclude_methods:
+        - path: internal/domain/catalog/svc/widget.go
+          symbols: [widget.UpdateTitle]
+          reason: legacy read-modify-write flow
+  ddd/repository-error-contract:
+    severity: error
+    options:
+      reject_unused_excludes: true
+      exclude_imports:
+        - path: internal/domain/catalog/repo/widget.go
+          imports: [github.com/pkg/errors]
+          reason: legacy error package
+```
 
 ## Rule Tiers
 
