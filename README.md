@@ -371,7 +371,7 @@ Options for 'check':
     go-version: '1.26'
 - name: Install lint tools
   run: |
-    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
     go install github.com/channel-io/cht-go-lint/cmd/cht-go-lint@latest
 - run: cht-go-lint check --format github
 ```
