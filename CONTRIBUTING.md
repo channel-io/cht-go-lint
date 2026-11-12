@@ -11,7 +11,7 @@ go test ./...
 ```
 
 Requirements:
-- Go 1.22+
+- Go 1.26+
 - No CGO dependencies
 
 ## Project Structure

@@ -368,7 +368,7 @@ Options for 'check':
 ```yaml
 - uses: actions/setup-go@v5
   with:
-    go-version: '1.22'
+    go-version: '1.26'
 - name: Install lint tools
   run: |
     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0

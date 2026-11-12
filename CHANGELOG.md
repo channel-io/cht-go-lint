@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Minimum Go version is now 1.26.0 (was 1.22). CI tests on Go 1.26 and 1.27
+
 ### Added
 
 - Repository contract rules for method vocabulary and Find/Fetch semantics, read-modify-write concurrency guards, and apierr/sentinel/wrapping/import policy
